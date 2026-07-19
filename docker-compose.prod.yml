@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: familyquest
+      POSTGRES_USER: familyquest
+      POSTGRES_PASSWORD: familyquest
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgres://familyquest:familyquest@postgres:5432/familyquest?sslmode=disable
+      HTTP_ADDR: :8081
+      CORS_ORIGIN: https://lobov.family
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ""
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - default
+      - homelab
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=homelab
+      - traefik.http.routers.familyquest.rule=Host(`lobov.family`) || Host(`www.lobov.family`)
+      - traefik.http.routers.familyquest.entrypoints=web
+      - traefik.http.services.familyquest.loadbalancer.server.port=80
+
+volumes:
+  postgres_data:
+
+networks:
+  homelab:
+    external: true
