@@ -42,6 +42,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	s.mux.HandleFunc("POST /api/session", s.verifySession)
 	s.mux.HandleFunc("GET /api/participants", s.listParticipants)
 	s.mux.HandleFunc("GET /api/chores", s.listChores)
 	s.mux.HandleFunc("POST /api/chores", s.createChore)
@@ -50,6 +51,24 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/tasks", s.listTasks)
 	s.mux.HandleFunc("POST /api/tasks/", s.taskAction)
 	s.mux.HandleFunc("GET /api/leaderboard", s.leaderboard)
+	s.mux.HandleFunc("POST /api/behavior-ratings", s.rateBehavior)
+}
+
+func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		ParticipantID int64  `json:"participantId"`
+		PIN           string `json:"pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if len(request.PIN) != 6 {
+		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
+		return
+	}
+	participant, err := s.store.VerifyParticipantPIN(r.Context(), request.ParticipantID, request.PIN)
+	respond(w, participant, err)
 }
 
 func (s *Server) listParticipants(w http.ResponseWriter, r *http.Request) {
@@ -133,12 +152,29 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	period := r.URL.Query().Get("period")
-	if period != "month" {
+	if period != "day" && period != "month" {
 		period = "week"
 	}
 	date := parseDate(r.URL.Query().Get("date"))
 	entries, err := s.store.Leaderboard(r.Context(), period, date)
 	respond(w, entries, err)
+}
+
+func (s *Server) rateBehavior(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Date                string `json:"date"`
+		RaterParticipantID  int64  `json:"raterParticipantId"`
+		TargetParticipantID int64  `json:"targetParticipantId"`
+		Rating              int    `json:"rating"`
+		Comment             string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	date := parseDate(request.Date)
+	behavior, err := s.store.RateBehavior(r.Context(), date, request.RaterParticipantID, request.TargetParticipantID, request.Rating, request.Comment)
+	respondCreated(w, behavior, err)
 }
 
 func parseTaskAction(path string) (int64, string, bool) {
@@ -172,6 +208,9 @@ func respond(w http.ResponseWriter, payload any, err error) {
 		}
 		if errors.Is(err, store.ErrInvalidRating) {
 			status = http.StatusBadRequest
+		}
+		if errors.Is(err, store.ErrInvalidPIN) {
+			status = http.StatusUnauthorized
 		}
 		writeError(w, status, err.Error())
 		return
