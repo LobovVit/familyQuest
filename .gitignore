@@ -1,0 +1,16 @@
+.DS_Store
+.idea/
+
+# Go
+backend/bin/
+backend/tmp/
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local env
+.env
+.env.*
+!.env.example
