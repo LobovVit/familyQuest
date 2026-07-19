@@ -417,14 +417,21 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <p className="eyebrow">FamilyQuest</p>
-          <h1>Семейный план дня</h1>
-          <p className="topbar-copy">Маленькие дела Макса и взрослые семейные задачи собираются в один спокойный ритм.</p>
-        </div>
         <div className="topbar-actions">
+          <section className="summary-grid topbar-summary" aria-label="Итоги текущего плана">
+            <Metric label="На сегодня" value={totals.total} />
+            <Metric label="Отмечено" value={totals.completed} />
+            <Metric label="Подтверждено" value={totals.confirmed} />
+            <Metric label="Начислено" value={`${Math.round(totals.reward)} ⭐`} />
+          </section>
           <div className="date-card">
-            <span>Дата плана</span>
+            <select aria-label="Раздел FamilyQuest" value={activeTab} onChange={(event) => setActiveTab(event.target.value as ActiveTab)}>
+              {tabs.map((tab) => (
+                <option key={tab.id} value={tab.id}>
+                  {tab.label}
+                </option>
+              ))}
+            </select>
             <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
           </div>
           <div className="user-switcher">
@@ -494,14 +501,6 @@ function App() {
         </div>
       )}
 
-      <nav className="app-tabs" aria-label="Разделы FamilyQuest">
-        {tabs.map((tab) => (
-          <button className={activeTab === tab.id ? 'active' : ''} key={tab.id} onClick={() => setActiveTab(tab.id)}>
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-
       {activeTab === 'day' && (
         <>
           {!currentParticipant && (
@@ -543,13 +542,6 @@ function App() {
               </div>
             </section>
           )}
-
-          <section className="summary-grid">
-            <Metric label="На сегодня" value={totals.total} />
-            <Metric label="Отмечено" value={totals.completed} />
-            <Metric label="Подтверждено" value={totals.confirmed} />
-            <Metric label="Начислено" value={`${Math.round(totals.reward)} ⭐`} />
-          </section>
 
           <section className="workspace">
             <div className="task-panel">

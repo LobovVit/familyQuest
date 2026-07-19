@@ -14,16 +14,9 @@
 }
 
 .topbar {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+  grid-template-columns: 1fr;
+  align-items: center;
   margin-bottom: 18px;
-}
-
-.topbar-copy {
-  max-width: 680px;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 16px;
 }
 
 .eyebrow {
@@ -136,9 +129,29 @@ label {
 
 .topbar-actions {
   display: grid;
-  grid-template-columns: 260px 116px;
+  grid-template-columns: minmax(0, 1fr) 230px 116px;
   gap: 12px;
   align-items: stretch;
+}
+
+.topbar-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.topbar-summary .metric {
+  min-height: 54px;
+  padding: 10px 12px;
+}
+
+.topbar-summary .metric strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.topbar-summary .metric span {
+  font-size: 11px;
 }
 
 .user-switcher {
@@ -257,22 +270,6 @@ label {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-}
-
-.app-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  padding: 6px;
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  box-shadow: var(--shadow);
-}
-
-.app-tabs button {
-  flex: 0 0 auto;
 }
 
 .family-board {
@@ -487,8 +484,7 @@ label {
   gap: 16px;
 }
 
-.segmented,
-.rating-buttons {
+.segmented {
   display: inline-flex;
   gap: 6px;
   padding: 4px;
@@ -497,9 +493,24 @@ label {
   background: var(--card);
 }
 
+.rating-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
 .rating-buttons button {
-  width: 38px;
+  width: 100%;
   padding: 0;
+}
+
+.task-actions .rating-buttons {
+  width: min(240px, 100%);
 }
 
 .behavior-list {
@@ -818,7 +829,11 @@ textarea {
   }
 
   .topbar-actions {
-    grid-template-columns: minmax(0, 1fr) 116px;
+    grid-template-columns: minmax(0, 1fr) 230px 116px;
+  }
+
+  .topbar-summary {
+    min-width: 0;
   }
 
   .family-board,
@@ -837,9 +852,12 @@ textarea {
   }
 
   .family-board,
-  .summary-grid,
   .form-row {
     grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .section-heading,
@@ -855,6 +873,18 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .date-card {
+    order: 2;
+  }
+
+  .user-switcher {
+    order: 3;
+  }
+
+  .topbar-summary {
+    order: 1;
+  }
+
   .current-user-card {
     width: 100%;
   }
@@ -866,8 +896,7 @@ textarea {
   }
 
   .segmented,
-  .rating-buttons,
-  .app-tabs {
+  .rating-buttons {
     flex-wrap: wrap;
     justify-content: flex-start;
   }
