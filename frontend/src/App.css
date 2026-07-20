@@ -312,17 +312,23 @@ label {
   width: 48px;
   height: 48px;
   border-radius: 8px;
-  color: #fff;
-  background: var(--teal);
+  background: var(--teal-bg);
+  font-size: 28px;
   font-weight: 900;
+  line-height: 1;
 }
 
 .avatar.parent {
-  background: var(--accent);
+  background: var(--mint);
 }
 
 .avatar.child {
-  background: var(--coral);
+  background: var(--coral-bg);
+}
+
+.family-avatar {
+  background: var(--gold-bg);
+  font-size: 24px;
 }
 
 .summary-grid {
@@ -573,17 +579,30 @@ label {
 
 .leaderboard li {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 2px 12px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card);
 }
 
-.leaderboard span {
+.leaderboard-name {
   color: var(--text-strong);
   font-weight: 800;
+}
+
+.leaderboard-avatar {
+  display: grid;
+  grid-row: span 2;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: var(--mint);
+  font-size: 25px;
+  line-height: 1;
 }
 
 .leaderboard strong,
@@ -592,7 +611,7 @@ label {
 }
 
 .leaderboard small {
-  grid-column: 1 / -1;
+  grid-column: 2 / -1;
 }
 
 .catalog {

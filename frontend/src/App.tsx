@@ -506,7 +506,7 @@ function App() {
           {!currentParticipant && (
             <section className="family-board" aria-label="Семья">
               <button className={`person-card all-card ${selectedPerson === 'all' ? 'active' : ''}`} onClick={() => setSelectedPerson('all')}>
-                <span className="avatar">FQ</span>
+                <span className="avatar family-avatar">👨‍👩‍👦</span>
                 <strong>Вся семья</strong>
                 <small>{tasks.length} дел на день</small>
               </button>
@@ -520,7 +520,7 @@ function App() {
                     key={person.id}
                     onClick={() => setSelectedPerson(person.id)}
                   >
-                    <span className={`avatar ${person.role}`}>{person.name.slice(0, 1)}</span>
+                    <span className={`avatar ${person.role}`}>{participantAvatar(person)}</span>
                     <strong>{person.name}</strong>
                     <small>
                       {roleLabels[person.role]} · {done}/{personTasks.length}
@@ -893,7 +893,8 @@ function Leaderboard({ entries, title }: { entries: LeaderboardEntry[]; title: s
       <ol className="leaderboard">
         {entries.map((entry) => (
           <li key={entry.participantId}>
-            <span>{entry.name}</span>
+            <span className="leaderboard-avatar">{avatarForName(entry.name)}</span>
+            <span className="leaderboard-name">{entry.name}</span>
             <strong>{entry.reward.toFixed(0)} ⭐</strong>
             <small>
               {entry.tasksDone}/{entry.tasksAssigned} дел · дела {entry.averageRating.toFixed(1)}/5 · поведение {behaviorLabel(entry)}
@@ -1013,16 +1014,20 @@ function behaviorLabel(entry: LeaderboardEntry) {
 }
 
 function participantAvatar(participant: Participant) {
-  if (participant.name === 'Мама') {
+  return avatarForName(participant.name, participant.role)
+}
+
+function avatarForName(name: string, role?: Participant['role']) {
+  if (name === 'Мама') {
     return '👩'
   }
-  if (participant.name === 'Папа') {
+  if (name === 'Папа') {
     return '👨'
   }
-  if (participant.name === 'Макс') {
+  if (name === 'Макс') {
     return '🧒'
   }
-  return participant.role === 'child' ? '🙂' : '👤'
+  return role === 'child' ? '🙂' : '👤'
 }
 
 function weekStart(value: string) {
