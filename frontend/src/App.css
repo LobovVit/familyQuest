@@ -620,14 +620,18 @@ label {
   margin-top: 18px;
 }
 
+.catalog.single {
+  grid-template-columns: 1fr;
+}
+
 .chore-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
 
-.chore-grid article {
+.chore-card {
   display: grid;
   gap: 10px;
   min-height: 146px;
@@ -635,6 +639,26 @@ label {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card);
+}
+
+.chore-card.editing {
+  grid-column: span 2;
+  background: var(--surface);
+}
+
+.chore-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  gap: 10px;
+  align-items: start;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  min-height: 38px;
+  padding: 0;
+  font-size: 18px;
 }
 
 .chore-grid footer {
@@ -648,6 +672,74 @@ label {
 .chore-grid span {
   color: var(--muted);
   font-size: 13px;
+}
+
+.assignee-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assignee-row span {
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--text-strong);
+  background: var(--teal-bg);
+  font-weight: 800;
+}
+
+.chore-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.participant-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.participant-picker label {
+  display: grid;
+  grid-template-columns: 20px 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.participant-picker label.active {
+  border-color: var(--accent);
+  background: var(--mint);
+}
+
+.participant-picker input {
+  width: 16px;
+}
+
+.participant-picker span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 20px;
+}
+
+.participant-picker strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .week-grid {
@@ -877,6 +969,10 @@ textarea {
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chore-card.editing {
+    grid-column: auto;
   }
 
   .section-heading,

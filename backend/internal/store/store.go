@@ -168,7 +168,16 @@ func (s *Store) ListChores(ctx context.Context) ([]Chore, error) {
 		}
 		chores = append(chores, c)
 	}
-	return chores, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(chores) == 0 {
+		return chores, nil
+	}
+	if err := s.loadChoreParticipants(ctx, chores); err != nil {
+		return nil, err
+	}
+	return chores, nil
 }
 
 func (s *Store) CreateChore(ctx context.Context, chore Chore) (Chore, error) {
@@ -178,13 +187,88 @@ func (s *Store) CreateChore(ctx context.Context, chore Chore) (Chore, error) {
 	if chore.ExecutionMode == "" {
 		chore.ExecutionMode = "assigned"
 	}
-	err := s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return chore, err
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.QueryRow(ctx, `
 		insert into chores (title, description, schedule, time_window, benefit_type, execution_mode, base_value)
 		values ($1, $2, $3, $4, $5, $6, $7)
 		returning id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at
 	`, chore.Title, chore.Description, chore.Schedule, chore.TimeWindow, chore.BenefitType, chore.ExecutionMode, chore.BaseValue).
 		Scan(&chore.ID, &chore.Title, &chore.Description, &chore.Schedule, &chore.TimeWindow, &chore.BenefitType, &chore.ExecutionMode, &chore.BaseValue, &chore.Active, &chore.CreatedAt)
-	return chore, err
+	if err != nil {
+		return chore, err
+	}
+	if err := syncChoreParticipants(ctx, tx, chore.ID, chore.ParticipantIDs); err != nil {
+		return chore, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return chore, err
+	}
+	chores, err := s.ListChores(ctx)
+	if err != nil {
+		return chore, err
+	}
+	for _, item := range chores {
+		if item.ID == chore.ID {
+			return item, nil
+		}
+	}
+	return chore, nil
+}
+
+func (s *Store) UpdateChore(ctx context.Context, chore Chore) (Chore, error) {
+	if chore.BenefitType == "" {
+		chore.BenefitType = "self"
+	}
+	if chore.ExecutionMode == "" {
+		chore.ExecutionMode = "assigned"
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return chore, err
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.QueryRow(ctx, `
+		update chores
+		set title = $2,
+		    description = $3,
+		    schedule = $4,
+		    time_window = $5,
+		    benefit_type = $6,
+		    execution_mode = $7,
+		    base_value = $8,
+		    active = true
+		where id = $1
+		returning id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at
+	`, chore.ID, chore.Title, chore.Description, chore.Schedule, chore.TimeWindow, chore.BenefitType, chore.ExecutionMode, chore.BaseValue).
+		Scan(&chore.ID, &chore.Title, &chore.Description, &chore.Schedule, &chore.TimeWindow, &chore.BenefitType, &chore.ExecutionMode, &chore.BaseValue, &chore.Active, &chore.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Chore{}, ErrNotFound
+	}
+	if err != nil {
+		return chore, err
+	}
+	if err := syncChoreParticipants(ctx, tx, chore.ID, chore.ParticipantIDs); err != nil {
+		return chore, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return chore, err
+	}
+	chores, err := s.ListChores(ctx)
+	if err != nil {
+		return chore, err
+	}
+	for _, item := range chores {
+		if item.ID == chore.ID {
+			return item, nil
+		}
+	}
+	return chore, nil
 }
 
 func (s *Store) ListAssignments(ctx context.Context) ([]Assignment, error) {
@@ -233,6 +317,64 @@ func (s *Store) CreateAssignment(ctx context.Context, choreID, participantID int
 		}
 	}
 	return assignment, nil
+}
+
+func (s *Store) loadChoreParticipants(ctx context.Context, chores []Chore) error {
+	choreByID := make(map[int64]*Chore, len(chores))
+	ids := make([]int64, 0, len(chores))
+	for index := range chores {
+		choreByID[chores[index].ID] = &chores[index]
+		ids = append(ids, chores[index].ID)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		select a.chore_id, p.id, p.name
+		from assignments a
+		join participants p on p.id = a.participant_id
+		where a.active = true and a.chore_id = any($1)
+		order by a.chore_id, p.id
+	`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var choreID int64
+		var participantID int64
+		var name string
+		if err := rows.Scan(&choreID, &participantID, &name); err != nil {
+			return err
+		}
+		chore := choreByID[choreID]
+		if chore == nil {
+			continue
+		}
+		chore.ParticipantIDs = append(chore.ParticipantIDs, participantID)
+		chore.ParticipantNames = append(chore.ParticipantNames, name)
+	}
+	return rows.Err()
+}
+
+func syncChoreParticipants(ctx context.Context, tx pgx.Tx, choreID int64, participantIDs []int64) error {
+	_, err := tx.Exec(ctx, `update assignments set active = false where chore_id = $1`, choreID)
+	if err != nil {
+		return err
+	}
+	for _, participantID := range participantIDs {
+		if participantID == 0 {
+			continue
+		}
+		_, err := tx.Exec(ctx, `
+			insert into assignments (chore_id, participant_id)
+			values ($1, $2)
+			on conflict (chore_id, participant_id) do update set active = true
+		`, choreID, participantID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) EnsureTasksForDate(ctx context.Context, dueDate time.Time) error {

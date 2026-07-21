@@ -30,7 +30,7 @@ func NewServer(store *store.Store, corsOrigin string) http.Handler {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -46,6 +46,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/participants", s.listParticipants)
 	s.mux.HandleFunc("GET /api/chores", s.listChores)
 	s.mux.HandleFunc("POST /api/chores", s.createChore)
+	s.mux.HandleFunc("PUT /api/chores/", s.updateChore)
 	s.mux.HandleFunc("GET /api/assignments", s.listAssignments)
 	s.mux.HandleFunc("POST /api/assignments", s.createAssignment)
 	s.mux.HandleFunc("GET /api/tasks", s.listTasks)
@@ -89,6 +90,22 @@ func (s *Server) createChore(w http.ResponseWriter, r *http.Request) {
 	}
 	created, err := s.store.CreateChore(r.Context(), chore)
 	respondCreated(w, created, err)
+}
+
+func (s *Server) updateChore(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDPath(r.URL.Path, "api", "chores")
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown chore")
+		return
+	}
+	var chore store.Chore
+	if err := json.NewDecoder(r.Body).Decode(&chore); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	chore.ID = id
+	updated, err := s.store.UpdateChore(r.Context(), chore)
+	respond(w, updated, err)
 }
 
 func (s *Server) listAssignments(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +204,18 @@ func parseTaskAction(path string) (int64, string, bool) {
 		return 0, "", false
 	}
 	return id, parts[3], true
+}
+
+func parseIDPath(path string, first string, second string) (int64, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 3 || parts[0] != first || parts[1] != second {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
 }
 
 func parseDate(value string) time.Time {

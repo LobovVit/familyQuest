@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
@@ -18,6 +18,8 @@ type Chore = {
   benefitType: BenefitType
   executionMode: ExecutionMode
   baseValue: number
+  participantIds: number[]
+  participantNames: string[]
 }
 
 type Assignment = {
@@ -69,6 +71,7 @@ type TimeWindow = '' | 'morning' | 'day' | 'evening'
 type BenefitType = 'self' | 'family' | 'care' | 'home'
 type ExecutionMode = 'assigned' | 'together' | 'adult_child' | 'anyone'
 type ActiveTab = 'day' | 'week' | 'month' | 'catalog' | 'users'
+type ChoreDraft = Omit<Chore, 'id' | 'participantNames'>
 
 const scheduleLabels: Record<Schedule, string> = {
   once: 'Разово',
@@ -130,20 +133,8 @@ function App() {
   const [pinPrompt, setPinPrompt] = useState<PinPrompt | null>(null)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isCheckingPin, setIsCheckingPin] = useState(false)
-
-  const [newChore, setNewChore] = useState({
-    title: '',
-    description: '',
-    schedule: 'daily' as Schedule,
-    timeWindow: '' as TimeWindow,
-    benefitType: 'self' as BenefitType,
-    executionMode: 'assigned' as ExecutionMode,
-    baseValue: 50,
-  })
-  const [newAssignment, setNewAssignment] = useState({
-    choreId: 0,
-    participantId: 0,
-  })
+  const [editingChoreId, setEditingChoreId] = useState<number | 'new' | null>(null)
+  const [choreDraft, setChoreDraft] = useState<ChoreDraft>(() => emptyChoreDraft())
 
   const loadData = useCallback(async () => {
     setError('')
@@ -166,10 +157,6 @@ function App() {
       setDayLeaderboard(dayLeaderboardData)
       setWeekLeaderboard(weekLeaderboardData)
       setMonthLeaderboard(monthLeaderboardData)
-      setNewAssignment((current) => ({
-        choreId: current.choreId || choresData[0]?.id || 0,
-        participantId: current.participantId || participantsData[0]?.id || 0,
-      }))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить данные')
     } finally {
@@ -282,52 +269,78 @@ function App() {
     return false
   }
 
-  async function createChore(event: React.FormEvent) {
-    event.preventDefault()
+  function startNewChore() {
     if (!requireCurrentParticipant()) {
       return
     }
-    if (!newChore.title.trim()) {
-      return
-    }
     setError('')
-    try {
-      await api('/api/chores', {
-        method: 'POST',
-        body: JSON.stringify(newChore),
-      })
-      setNewChore({
-        title: '',
-        description: '',
-        schedule: 'daily',
-        timeWindow: '',
-        benefitType: 'self',
-        executionMode: 'assigned',
-        baseValue: 50,
-      })
-      await loadData()
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Не удалось добавить обязанность')
-    }
+    setChoreDraft(emptyChoreDraft())
+    setEditingChoreId('new')
+    setActiveTab('catalog')
   }
 
-  async function createAssignment(event: React.FormEvent) {
-    event.preventDefault()
+  function startEditChore(chore: Chore) {
     if (!requireCurrentParticipant()) {
       return
     }
-    if (!newAssignment.choreId || !newAssignment.participantId) {
+    setError('')
+    setChoreDraft({
+      title: chore.title,
+      description: chore.description,
+      schedule: chore.schedule,
+      timeWindow: chore.timeWindow,
+      benefitType: chore.benefitType,
+      executionMode: chore.executionMode,
+      baseValue: chore.baseValue,
+      participantIds: chore.participantIds ?? [],
+    })
+    setEditingChoreId(chore.id)
+  }
+
+  function cancelEditChore() {
+    setEditingChoreId(null)
+    setChoreDraft(emptyChoreDraft())
+  }
+
+  function toggleDraftParticipant(participantId: number) {
+    setChoreDraft((current) => {
+      const hasParticipant = current.participantIds.includes(participantId)
+      return {
+        ...current,
+        participantIds: hasParticipant
+          ? current.participantIds.filter((id) => id !== participantId)
+          : [...current.participantIds, participantId],
+      }
+    })
+  }
+
+  async function saveChore() {
+    if (!requireCurrentParticipant()) {
+      return
+    }
+    if (!choreDraft.title.trim()) {
+      setError('Добавьте название обязанности')
+      return
+    }
+    if (choreDraft.participantIds.length === 0) {
+      setError('Выберите хотя бы одного участника')
       return
     }
     setError('')
     try {
-      await api('/api/assignments', {
-        method: 'POST',
-        body: JSON.stringify(newAssignment),
+      const payload = {
+        ...choreDraft,
+        title: choreDraft.title.trim(),
+        baseValue: Math.max(1, Number(choreDraft.baseValue) || 1),
+      }
+      await api(editingChoreId === 'new' ? '/api/chores' : `/api/chores/${editingChoreId}`, {
+        method: editingChoreId === 'new' ? 'POST' : 'PUT',
+        body: JSON.stringify(payload),
       })
+      cancelEditChore()
       await loadData()
-    } catch (assignmentError) {
-      setError(assignmentError instanceof Error ? assignmentError.message : 'Не удалось назначить обязанность')
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить обязанность')
     }
   }
 
@@ -647,18 +660,6 @@ function App() {
                 </div>
               </section>
 
-              <section className="panel">
-                <h2>Новое назначение</h2>
-                <form className="stack-form" onSubmit={createAssignment}>
-                  <AssignmentFields
-                    chores={chores}
-                    newAssignment={newAssignment}
-                    participants={participants}
-                    setNewAssignment={setNewAssignment}
-                  />
-                  <button type="submit">Назначить</button>
-                </form>
-              </section>
             </aside>
           </section>
         </>
@@ -690,18 +691,6 @@ function App() {
           </div>
           <aside className="side-column">
             <Leaderboard title="Рейтинг недели" entries={weekLeaderboard} />
-            <section className="panel">
-              <h2>Назначить на неделю</h2>
-              <form className="stack-form" onSubmit={createAssignment}>
-                <AssignmentFields
-                  chores={chores}
-                  newAssignment={newAssignment}
-                  participants={participants}
-                  setNewAssignment={setNewAssignment}
-                />
-                <button type="submit">Назначить</button>
-              </form>
-            </section>
           </aside>
         </section>
       )}
@@ -735,108 +724,67 @@ function App() {
       )}
 
       {activeTab === 'catalog' && (
-        <section className="catalog">
+        <section className="catalog single">
           <div className="panel">
-            <h2>Справочник обязанностей</h2>
+            <div className="section-heading compact">
+              <h2>Справочник обязанностей</h2>
+              <button type="button" onClick={startNewChore}>
+                Добавить
+              </button>
+            </div>
             <div className="chore-grid">
+              {editingChoreId === 'new' && (
+                <article className="chore-card editing">
+                  <ChoreEditor
+                    draft={choreDraft}
+                    onCancel={cancelEditChore}
+                    onSave={saveChore}
+                    onToggleParticipant={toggleDraftParticipant}
+                    participants={participants}
+                    setDraft={setChoreDraft}
+                  />
+                </article>
+              )}
               {chores.map((chore) => (
-                <article key={chore.id}>
-                  <h3>{chore.title}</h3>
-                  <p>{chore.description}</p>
-                  <div className="tag-row">
-                    <span>{benefitLabels[chore.benefitType]}</span>
-                    <span>{executionLabels[chore.executionMode]}</span>
-                  </div>
-                  <footer>
-                    <span>{scheduleLabels[chore.schedule]}</span>
-                    <strong>{chore.baseValue} ⭐</strong>
-                  </footer>
+                <article className={`chore-card ${editingChoreId === chore.id ? 'editing' : ''}`} key={chore.id}>
+                  {editingChoreId === chore.id ? (
+                    <ChoreEditor
+                      draft={choreDraft}
+                      onCancel={cancelEditChore}
+                      onSave={saveChore}
+                      onToggleParticipant={toggleDraftParticipant}
+                      participants={participants}
+                      setDraft={setChoreDraft}
+                    />
+                  ) : (
+                    <>
+                      <div className="chore-card-head">
+                        <h3>{chore.title}</h3>
+                        <button aria-label={`Редактировать ${chore.title}`} className="icon-button" onClick={() => startEditChore(chore)} type="button">
+                          ✏
+                        </button>
+                      </div>
+                      <p>{chore.description}</p>
+                      <div className="tag-row">
+                        <span>{benefitLabels[chore.benefitType]}</span>
+                        <span>{executionLabels[chore.executionMode]}</span>
+                      </div>
+                      <div className="assignee-row">
+                        {chore.participantNames?.length ? (
+                          chore.participantNames.map((name) => <span key={name}>{avatarForName(name)} {name}</span>)
+                        ) : (
+                          <span>Не привязано</span>
+                        )}
+                      </div>
+                      <footer>
+                        <span>{scheduleLabels[chore.schedule]} · {windowLabels[chore.timeWindow]}</span>
+                        <strong>{chore.baseValue} ⭐</strong>
+                      </footer>
+                    </>
+                  )}
                 </article>
               ))}
             </div>
-          </div>
-
-          <div className="panel">
-            <h2>Добавить обязанность</h2>
-            <form className="stack-form" onSubmit={createChore}>
-              <label>
-                Название
-                <input value={newChore.title} onChange={(event) => setNewChore({ ...newChore, title: event.target.value })} />
-              </label>
-              <label>
-                Описание
-                <textarea
-                  value={newChore.description}
-                  onChange={(event) => setNewChore({ ...newChore, description: event.target.value })}
-                />
-              </label>
-              <div className="form-row">
-                <label>
-                  Периодичность
-                  <select
-                    value={newChore.schedule}
-                    onChange={(event) => setNewChore({ ...newChore, schedule: event.target.value as Schedule })}
-                  >
-                    {Object.entries(scheduleLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Когда
-                  <select
-                    value={newChore.timeWindow}
-                    onChange={(event) => setNewChore({ ...newChore, timeWindow: event.target.value as TimeWindow })}
-                  >
-                    {Object.entries(windowLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="form-row">
-                <label>
-                  Польза
-                  <select
-                    value={newChore.benefitType}
-                    onChange={(event) => setNewChore({ ...newChore, benefitType: event.target.value as BenefitType })}
-                  >
-                    {Object.entries(benefitLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Выполнение
-                  <select
-                    value={newChore.executionMode}
-                    onChange={(event) => setNewChore({ ...newChore, executionMode: event.target.value as ExecutionMode })}
-                  >
-                    {Object.entries(executionLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <label>
-                Базовая ценность
-                <input
-                  min="1"
-                  type="number"
-                  value={newChore.baseValue}
-                  onChange={(event) => setNewChore({ ...newChore, baseValue: Number(event.target.value) })}
-                />
-              </label>
-              <button type="submit">Добавить</button>
-            </form>
           </div>
         </section>
       )}
@@ -906,43 +854,97 @@ function Leaderboard({ entries, title }: { entries: LeaderboardEntry[]; title: s
   )
 }
 
-function AssignmentFields({
-  chores,
-  newAssignment,
+function ChoreEditor({
+  draft,
+  onCancel,
+  onSave,
+  onToggleParticipant,
   participants,
-  setNewAssignment,
+  setDraft,
 }: {
-  chores: Chore[]
-  newAssignment: { choreId: number; participantId: number }
+  draft: ChoreDraft
+  onCancel: () => void
+  onSave: () => void
+  onToggleParticipant: (participantId: number) => void
   participants: Participant[]
-  setNewAssignment: (assignment: { choreId: number; participantId: number }) => void
+  setDraft: Dispatch<SetStateAction<ChoreDraft>>
 }) {
   return (
-    <>
+    <div className="chore-editor">
       <label>
-        Обязанность
-        <select value={newAssignment.choreId} onChange={(event) => setNewAssignment({ ...newAssignment, choreId: Number(event.target.value) })}>
-          {chores.map((chore) => (
-            <option key={chore.id} value={chore.id}>
-              {chore.title}
-            </option>
-          ))}
-        </select>
+        Название
+        <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
       </label>
       <label>
-        Участник
-        <select
-          value={newAssignment.participantId}
-          onChange={(event) => setNewAssignment({ ...newAssignment, participantId: Number(event.target.value) })}
-        >
-          {participants.map((person) => (
-            <option key={person.id} value={person.id}>
-              {person.name}
-            </option>
-          ))}
-        </select>
+        Описание
+        <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
       </label>
-    </>
+      <div className="form-row">
+        <label>
+          Периодичность
+          <select value={draft.schedule} onChange={(event) => setDraft({ ...draft, schedule: event.target.value as Schedule })}>
+            {Object.entries(scheduleLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Когда
+          <select value={draft.timeWindow} onChange={(event) => setDraft({ ...draft, timeWindow: event.target.value as TimeWindow })}>
+            {Object.entries(windowLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="form-row">
+        <label>
+          Польза
+          <select value={draft.benefitType} onChange={(event) => setDraft({ ...draft, benefitType: event.target.value as BenefitType })}>
+            {Object.entries(benefitLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Выполнение
+          <select value={draft.executionMode} onChange={(event) => setDraft({ ...draft, executionMode: event.target.value as ExecutionMode })}>
+            {Object.entries(executionLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Базовая ценность
+        <input min="1" type="number" value={draft.baseValue} onChange={(event) => setDraft({ ...draft, baseValue: Number(event.target.value) })} />
+      </label>
+      <div className="participant-picker" aria-label="Участники обязанности">
+        {participants.map((person) => (
+          <label className={draft.participantIds.includes(person.id) ? 'active' : ''} key={person.id}>
+            <input checked={draft.participantIds.includes(person.id)} onChange={() => onToggleParticipant(person.id)} type="checkbox" />
+            <span>{participantAvatar(person)}</span>
+            <strong>{person.name}</strong>
+          </label>
+        ))}
+      </div>
+      <div className="editor-actions">
+        <button type="button" onClick={onCancel}>
+          Отмена
+        </button>
+        <button type="button" onClick={onSave}>
+          Сохранить
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -1011,6 +1013,19 @@ function behaviorLabel(entry: LeaderboardEntry) {
     return 'нет оценок'
   }
   return `${entry.behaviorRating.toFixed(1)}/5`
+}
+
+function emptyChoreDraft(): ChoreDraft {
+  return {
+    title: '',
+    description: '',
+    schedule: 'daily',
+    timeWindow: '',
+    benefitType: 'self',
+    executionMode: 'assigned',
+    baseValue: 50,
+    participantIds: [],
+  }
 }
 
 function participantAvatar(participant: Participant) {

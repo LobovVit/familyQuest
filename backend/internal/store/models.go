@@ -10,16 +10,18 @@ type Participant struct {
 }
 
 type Chore struct {
-	ID            int64     `json:"id"`
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	Schedule      string    `json:"schedule"`
-	TimeWindow    string    `json:"timeWindow"`
-	BenefitType   string    `json:"benefitType"`
-	ExecutionMode string    `json:"executionMode"`
-	BaseValue     int       `json:"baseValue"`
-	Active        bool      `json:"active"`
-	CreatedAt     time.Time `json:"createdAt"`
+	ID               int64     `json:"id"`
+	Title            string    `json:"title"`
+	Description      string    `json:"description"`
+	Schedule         string    `json:"schedule"`
+	TimeWindow       string    `json:"timeWindow"`
+	BenefitType      string    `json:"benefitType"`
+	ExecutionMode    string    `json:"executionMode"`
+	BaseValue        int       `json:"baseValue"`
+	ParticipantIDs   []int64   `json:"participantIds"`
+	ParticipantNames []string  `json:"participantNames"`
+	Active           bool      `json:"active"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 type Assignment struct {
