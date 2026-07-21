@@ -45,6 +45,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/session", s.verifySession)
 	s.mux.HandleFunc("GET /api/participants", s.listParticipants)
 	s.mux.HandleFunc("POST /api/participants", s.createParticipant)
+	s.mux.HandleFunc("PUT /api/participants/", s.updateParticipantPIN)
 	s.mux.HandleFunc("DELETE /api/participants/", s.deleteParticipant)
 	s.mux.HandleFunc("GET /api/chores", s.listChores)
 	s.mux.HandleFunc("POST /api/chores", s.createChore)
@@ -112,6 +113,27 @@ func (s *Server) deleteParticipant(w http.ResponseWriter, r *http.Request) {
 	}
 	err := s.store.DeleteParticipant(r.Context(), id)
 	respond(w, map[string]string{"status": "deleted"}, err)
+}
+
+func (s *Server) updateParticipantPIN(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseActionPath(r.URL.Path, "api", "participants", "pin")
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown participant action")
+		return
+	}
+	var request struct {
+		PIN string `json:"pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if len(request.PIN) != 6 {
+		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
+		return
+	}
+	participant, err := s.store.UpdateParticipantPIN(r.Context(), id, request.PIN)
+	respond(w, participant, err)
 }
 
 func (s *Server) listChores(w http.ResponseWriter, r *http.Request) {
@@ -275,6 +297,18 @@ func parseTaskAction(path string) (int64, string, bool) {
 func parseIDPath(path string, first string, second string) (int64, bool) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) != 3 || parts[0] != first || parts[1] != second {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+func parseActionPath(path string, first string, second string, action string) (int64, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 4 || parts[0] != first || parts[1] != second || parts[3] != action {
 		return 0, false
 	}
 	id, err := strconv.ParseInt(parts[2], 10, 64)

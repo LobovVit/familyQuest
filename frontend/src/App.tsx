@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? ''
 type Participant = {
   id: number
   name: string
-  role: 'parent' | 'child'
+  role: 'parent' | 'child' | 'school'
   active: boolean
 }
 
@@ -97,7 +97,7 @@ const scheduleLabels: Record<Schedule, string> = {
 }
 
 const windowLabels: Record<TimeWindow, string> = {
-  '': 'Без окна',
+  '': 'Когда угодно',
   morning: 'Утро',
   day: 'День',
   evening: 'Вечер',
@@ -106,6 +106,7 @@ const windowLabels: Record<TimeWindow, string> = {
 const roleLabels: Record<Participant['role'], string> = {
   parent: 'Взрослый',
   child: 'Дошкольник',
+  school: 'Школьник',
 }
 
 const rewardPeriodLabels: Record<RewardPeriod, string> = {
@@ -125,13 +126,6 @@ const benefitLabels: Record<BenefitType, string> = {
   family: 'Для семьи',
   care: 'Забота',
   home: 'Дом',
-}
-
-const executionLabels: Record<ExecutionMode, string> = {
-  assigned: 'Закреплено',
-  together: 'Можно вместе',
-  adult_child: 'Взрослый + ребенок',
-  anyone: 'Кто угодно',
 }
 
 const tabs: Array<{ id: ActiveTab; label: string }> = [
@@ -165,6 +159,7 @@ function App() {
   const [editingChoreId, setEditingChoreId] = useState<number | 'new' | null>(null)
   const [choreDraft, setChoreDraft] = useState<ChoreDraft>(() => emptyChoreDraft())
   const [newParticipant, setNewParticipant] = useState({ name: '', role: 'child' as Participant['role'], pin: '' })
+  const [pinEdit, setPinEdit] = useState<{ participantId: number; pin: string } | null>(null)
   const [newReward, setNewReward] = useState({
     title: '',
     description: '',
@@ -372,6 +367,8 @@ function App() {
       const payload = {
         ...choreDraft,
         title: choreDraft.title.trim(),
+        timeWindow: choreDraft.schedule === 'daily' ? choreDraft.timeWindow : '',
+        executionMode: 'assigned' as ExecutionMode,
         baseValue: Math.max(1, Number(choreDraft.baseValue) || 1),
       }
       await api(editingChoreId === 'new' ? '/api/chores' : `/api/chores/${editingChoreId}`, {
@@ -503,6 +500,27 @@ function App() {
       await loadData()
     } catch (participantError) {
       setError(participantError instanceof Error ? participantError.message : 'Не удалось удалить пользователя')
+    }
+  }
+
+  async function saveParticipantPIN(participant: Participant) {
+    if (!requireCurrentParticipant()) {
+      return
+    }
+    if (!pinEdit || pinEdit.participantId !== participant.id || pinEdit.pin.length !== 6) {
+      setError('PIN должен содержать 6 цифр')
+      return
+    }
+    setError('')
+    try {
+      await api(`/api/participants/${participant.id}/pin`, {
+        method: 'PUT',
+        body: JSON.stringify({ pin: pinEdit.pin }),
+      })
+      setPinEdit(null)
+      await loadData()
+    } catch (pinError) {
+      setError(pinError instanceof Error ? pinError.message : 'Не удалось изменить PIN')
     }
   }
 
@@ -715,7 +733,6 @@ function App() {
                       <p>{windowLabels[task.timeWindow]} · {taskRewardLabel(assignments, task)}</p>
                       <div className="tag-row">
                         <span>{benefitLabels[task.benefitType]}</span>
-                        <span>{executionLabels[task.executionMode]}</span>
                       </div>
                     </div>
                     <div className="task-actions">
@@ -903,7 +920,6 @@ function App() {
                       <p>{chore.description}</p>
                       <div className="tag-row">
                         <span>{benefitLabels[chore.benefitType]}</span>
-                        <span>{executionLabels[chore.executionMode]}</span>
                       </div>
                       <div className="assignee-row">
                         {chore.participantNames?.length ? (
@@ -944,9 +960,37 @@ function App() {
                   <dd>{tasks.filter((task) => task.participantId === person.id).length} дел</dd>
                 </div>
               </dl>
-              <button type="button" onClick={() => deleteParticipant(person)}>
-                Удалить
-              </button>
+              {pinEdit?.participantId === person.id ? (
+                <div className="pin-edit">
+                  <input
+                    autoFocus
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={pinEdit.pin}
+                    onChange={(event) =>
+                      setPinEdit({
+                        participantId: person.id,
+                        pin: event.target.value.replace(/\D/g, '').slice(0, 6),
+                      })
+                    }
+                  />
+                  <button disabled={pinEdit.pin.length !== 6} type="button" onClick={() => saveParticipantPIN(person)}>
+                    Сохранить
+                  </button>
+                  <button type="button" onClick={() => setPinEdit(null)}>
+                    Отмена
+                  </button>
+                </div>
+              ) : (
+                <div className="user-actions">
+                  <button type="button" onClick={() => setPinEdit({ participantId: person.id, pin: '' })}>
+                    Изменить PIN
+                  </button>
+                  <button type="button" onClick={() => deleteParticipant(person)}>
+                    Удалить
+                  </button>
+                </div>
+              )}
             </article>
           ))}
           <section className="panel">
@@ -964,6 +1008,7 @@ function App() {
                     onChange={(event) => setNewParticipant({ ...newParticipant, role: event.target.value as Participant['role'] })}
                   >
                     <option value="child">Дошкольник</option>
+                    <option value="school">Школьник</option>
                     <option value="parent">Взрослый</option>
                   </select>
                 </label>
@@ -1147,7 +1192,13 @@ function ChoreEditor({
       <div className="form-row">
         <label>
           Периодичность
-          <select value={draft.schedule} onChange={(event) => setDraft({ ...draft, schedule: event.target.value as Schedule })}>
+          <select
+            value={draft.schedule}
+            onChange={(event) => {
+              const schedule = event.target.value as Schedule
+              setDraft({ ...draft, schedule, timeWindow: schedule === 'daily' ? draft.timeWindow : '' })
+            }}
+          >
             {Object.entries(scheduleLabels).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -1157,7 +1208,11 @@ function ChoreEditor({
         </label>
         <label>
           Когда
-          <select value={draft.timeWindow} onChange={(event) => setDraft({ ...draft, timeWindow: event.target.value as TimeWindow })}>
+          <select
+            disabled={draft.schedule !== 'daily'}
+            value={draft.schedule === 'daily' ? draft.timeWindow : ''}
+            onChange={(event) => setDraft({ ...draft, timeWindow: event.target.value as TimeWindow })}
+          >
             {Object.entries(windowLabels).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -1166,28 +1221,16 @@ function ChoreEditor({
           </select>
         </label>
       </div>
-      <div className="form-row">
-        <label>
-          Польза
-          <select value={draft.benefitType} onChange={(event) => setDraft({ ...draft, benefitType: event.target.value as BenefitType })}>
-            {Object.entries(benefitLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Выполнение
-          <select value={draft.executionMode} onChange={(event) => setDraft({ ...draft, executionMode: event.target.value as ExecutionMode })}>
-            {Object.entries(executionLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <label>
+        Польза
+        <select value={draft.benefitType} onChange={(event) => setDraft({ ...draft, benefitType: event.target.value as BenefitType })}>
+          {Object.entries(benefitLabels).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
       <label>
         Базовая ценность
         <input min="1" type="number" value={draft.baseValue} onChange={(event) => setDraft({ ...draft, baseValue: Number(event.target.value) })} />
@@ -1306,6 +1349,9 @@ function avatarForName(name: string, role?: Participant['role']) {
   }
   if (name === 'Макс') {
     return '🧒'
+  }
+  if (role === 'school') {
+    return '🎒'
   }
   return role === 'child' ? '🙂' : '👤'
 }

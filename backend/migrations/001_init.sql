@@ -1,7 +1,7 @@
 create table if not exists participants (
 	id bigserial primary key,
 	name text not null unique,
-	role text not null check (role in ('parent', 'child')),
+	role text not null check (role in ('parent', 'child', 'school')),
 	pin_code text not null default '000000' check (pin_code ~ '^[0-9]{6}$'),
 	active boolean not null default true,
 	created_at timestamptz not null default now()
@@ -9,6 +9,8 @@ create table if not exists participants (
 
 alter table participants add column if not exists pin_code text not null default '000000';
 alter table participants add column if not exists active boolean not null default true;
+alter table participants drop constraint if exists participants_role_check;
+alter table participants add constraint participants_role_check check (role in ('parent', 'child', 'school'));
 
 create table if not exists chores (
 	id bigserial primary key,

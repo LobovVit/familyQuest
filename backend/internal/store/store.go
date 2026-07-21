@@ -182,11 +182,25 @@ func (s *Store) DeleteParticipant(ctx context.Context, participantID int64) erro
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	_, err = s.pool.Exec(ctx, `
-		update assignments set active = false where participant_id = $1;
-		update reward_participants set active = false where participant_id = $1;
-	`, participantID)
+	if _, err := s.pool.Exec(ctx, `update assignments set active = false where participant_id = $1`, participantID); err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `update reward_participants set active = false where participant_id = $1`, participantID)
 	return err
+}
+
+func (s *Store) UpdateParticipantPIN(ctx context.Context, participantID int64, pin string) (Participant, error) {
+	var participant Participant
+	err := s.pool.QueryRow(ctx, `
+		update participants
+		set pin_code = $2
+		where id = $1 and active = true
+		returning id, name, role, active, created_at
+	`, participantID, pin).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Participant{}, ErrNotFound
+	}
+	return participant, err
 }
 
 func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, pin string) (Participant, error) {

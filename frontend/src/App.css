@@ -875,8 +875,19 @@ label {
   color: var(--text-strong);
 }
 
-.user-card button {
+.user-actions,
+.pin-edit {
+  display: grid;
   grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.user-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.pin-edit {
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
 .rewards-panel {
