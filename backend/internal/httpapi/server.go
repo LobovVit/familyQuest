@@ -53,6 +53,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/assignments", s.listAssignments)
 	s.mux.HandleFunc("POST /api/assignments", s.createAssignment)
 	s.mux.HandleFunc("GET /api/tasks", s.listTasks)
+	s.mux.HandleFunc("GET /api/week-plan", s.weekPlan)
 	s.mux.HandleFunc("POST /api/tasks/", s.taskAction)
 	s.mux.HandleFunc("GET /api/leaderboard", s.leaderboard)
 	s.mux.HandleFunc("POST /api/behavior-ratings", s.rateBehavior)
@@ -189,6 +190,12 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	date := parseDate(r.URL.Query().Get("date"))
 	tasks, err := s.store.ListTasks(r.Context(), date)
 	respond(w, tasks, err)
+}
+
+func (s *Server) weekPlan(w http.ResponseWriter, r *http.Request) {
+	date := parseDate(r.URL.Query().Get("date"))
+	items, err := s.store.ListWeekPlan(r.Context(), date)
+	respond(w, items, err)
 }
 
 func (s *Server) taskAction(w http.ResponseWriter, r *http.Request) {

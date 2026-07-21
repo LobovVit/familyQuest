@@ -444,20 +444,23 @@ func syncChoreParticipants(ctx context.Context, tx pgx.Tx, choreID int64, partic
 }
 
 func (s *Store) EnsureTasksForDate(ctx context.Context, dueDate time.Time) error {
+	weekStart, _ := periodBounds("week", dueDate)
+	monthStart, _ := periodBounds("month", dueDate)
 	_, err := s.pool.Exec(ctx, `
 		insert into tasks (assignment_id, due_date)
-		select a.id, $1::date
+		select a.id,
+		       case
+		         when c.schedule = 'weekly' then $2::date
+		         when c.schedule = 'monthly' then $3::date
+		         else $1::date
+		       end
 		from assignments a
 		join chores c on c.id = a.chore_id
 		where a.active = true
 		  and c.active = true
-		  and (
-			c.schedule = 'daily'
-			or (c.schedule = 'weekly' and extract(isodow from $1::date) = 6)
-			or (c.schedule = 'monthly' and extract(day from $1::date) = 1)
-		  )
+		  and c.schedule in ('daily', 'weekly', 'monthly')
 		on conflict (assignment_id, due_date) do nothing
-	`, dueDate.Format("2006-01-02"))
+	`, dueDate.Format("2006-01-02"), weekStart.Format("2006-01-02"), monthStart.Format("2006-01-02"))
 	return err
 }
 
@@ -465,9 +468,11 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 	if err := s.EnsureTasksForDate(ctx, dueDate); err != nil {
 		return nil, err
 	}
+	weekStart, _ := periodBounds("week", dueDate)
+	monthStart, _ := periodBounds("month", dueDate)
 	rows, err := s.pool.Query(ctx, `
 		select t.id, t.assignment_id, a.chore_id, a.participant_id, c.title, p.name, t.due_date::text,
-		       c.time_window, c.benefit_type, c.execution_mode, t.status, t.completed_at, t.confirmed_at,
+		       c.schedule, c.time_window, c.benefit_type, c.execution_mode, t.status, t.completed_at, t.confirmed_at,
 		       coalesce(avg(conf.rating), 0)::float,
 		       coalesce(round((c.base_value * coalesce(avg(conf.rating), 0) / 5.0)::numeric, 2), 0)::float
 		from tasks t
@@ -475,12 +480,20 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 		join chores c on c.id = a.chore_id
 		join participants p on p.id = a.participant_id
 		left join confirmations conf on conf.task_id = t.id
-		where t.due_date = $1::date
+		where (
+		    (c.schedule = 'daily' and t.due_date = $1::date)
+		    or (c.schedule = 'weekly' and t.due_date = $2::date and t.status in ('pending', 'needs_work', 'completed'))
+		    or (c.schedule = 'monthly' and t.due_date = $3::date and t.status in ('pending', 'needs_work', 'completed'))
+		  )
 		  and a.active = true
 		  and c.active = true
-		group by t.id, a.chore_id, a.participant_id, c.title, p.name, c.time_window, c.benefit_type, c.execution_mode, c.base_value
-		order by a.participant_id, c.time_window, c.title
-	`, dueDate.Format("2006-01-02"))
+		group by t.id, a.chore_id, a.participant_id, c.title, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode, c.base_value
+		order by
+		  case c.schedule when 'daily' then 1 when 'weekly' then 2 when 'monthly' then 3 else 4 end,
+		  case c.time_window when 'morning' then 1 when 'day' then 2 when 'evening' then 3 else 4 end,
+		  a.participant_id,
+		  c.title
+	`, dueDate.Format("2006-01-02"), weekStart.Format("2006-01-02"), monthStart.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
@@ -489,12 +502,98 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 	var tasks []Task
 	for rows.Next() {
 		var t Task
-		if err := rows.Scan(&t.ID, &t.AssignmentID, &t.ChoreID, &t.ParticipantID, &t.ChoreTitle, &t.PersonName, &t.DueDate, &t.TimeWindow, &t.BenefitType, &t.ExecutionMode, &t.Status, &t.CompletedAt, &t.ConfirmedAt, &t.AverageRating, &t.Reward); err != nil {
+		if err := rows.Scan(&t.ID, &t.AssignmentID, &t.ChoreID, &t.ParticipantID, &t.ChoreTitle, &t.PersonName, &t.DueDate, &t.Schedule, &t.TimeWindow, &t.BenefitType, &t.ExecutionMode, &t.Status, &t.CompletedAt, &t.ConfirmedAt, &t.AverageRating, &t.Reward); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
+}
+
+func (s *Store) ListWeekPlan(ctx context.Context, at time.Time) ([]WeekPlanItem, error) {
+	start, end := periodBounds("week", at)
+	for day := start; day.Before(end); day = day.AddDate(0, 0, 1) {
+		if err := s.EnsureTasksForDate(ctx, day); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		with daily_weekly as (
+			select a.id as assignment_id,
+			       a.chore_id,
+			       a.participant_id,
+			       c.title,
+			       p.name,
+			       c.schedule,
+			       c.time_window,
+			       c.benefit_type,
+			       c.execution_mode,
+			       case when c.schedule = 'daily' then 7 else 1 end::int as planned_count,
+			       count(t.id) filter (where t.status <> 'pending')::int as done_count,
+			       count(t.id) filter (where t.status = 'confirmed')::int as confirmed_count
+			from assignments a
+			join chores c on c.id = a.chore_id
+			join participants p on p.id = a.participant_id
+			left join tasks t on t.assignment_id = a.id
+			  and t.due_date >= $1::date
+			  and t.due_date < $2::date
+			where a.active = true
+			  and c.active = true
+			  and c.schedule in ('daily', 'weekly')
+			group by a.id, a.chore_id, a.participant_id, c.title, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode
+		),
+		monthly_done as (
+			select a.id as assignment_id,
+			       a.chore_id,
+			       a.participant_id,
+			       c.title,
+			       p.name,
+			       c.schedule,
+			       c.time_window,
+			       c.benefit_type,
+			       c.execution_mode,
+			       1::int as planned_count,
+			       count(t.id) filter (where t.status <> 'pending')::int as done_count,
+			       count(t.id) filter (where t.status = 'confirmed')::int as confirmed_count
+			from assignments a
+			join chores c on c.id = a.chore_id
+			join participants p on p.id = a.participant_id
+			join tasks t on t.assignment_id = a.id
+			  and t.completed_at >= $1::date
+			  and t.completed_at < $2::date
+			where a.active = true
+			  and c.active = true
+			  and c.schedule = 'monthly'
+			group by a.id, a.chore_id, a.participant_id, c.title, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode
+		)
+		select assignment_id, chore_id, participant_id, title, name, schedule, time_window, benefit_type, execution_mode,
+		       planned_count, done_count, confirmed_count
+		from (
+			select * from daily_weekly
+			union all
+			select * from monthly_done
+		) plan
+		order by
+		  case schedule when 'daily' then 1 when 'weekly' then 2 when 'monthly' then 3 else 4 end,
+		  case time_window when 'morning' then 1 when 'day' then 2 when 'evening' then 3 else 4 end,
+		  participant_id,
+		  title
+	`, start.Format("2006-01-02"), end.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []WeekPlanItem
+	for rows.Next() {
+		var item WeekPlanItem
+		if err := rows.Scan(&item.AssignmentID, &item.ChoreID, &item.ParticipantID, &item.ChoreTitle, &item.PersonName, &item.Schedule, &item.TimeWindow, &item.BenefitType, &item.ExecutionMode, &item.PlannedCount, &item.DoneCount, &item.ConfirmedCount); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (s *Store) CompleteTask(ctx context.Context, taskID, participantID int64) (Task, error) {

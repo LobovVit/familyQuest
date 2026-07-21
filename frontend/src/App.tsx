@@ -43,12 +43,28 @@ type Task = {
   choreTitle: string
   personName: string
   dueDate: string
+  schedule: Schedule
   timeWindow: TimeWindow
   benefitType: BenefitType
   executionMode: ExecutionMode
   status: 'pending' | 'completed' | 'needs_work' | 'confirmed'
   averageRating: number
   reward: number
+}
+
+type WeekPlanItem = {
+  assignmentId: number
+  choreId: number
+  participantId: number
+  choreTitle: string
+  personName: string
+  schedule: Schedule
+  timeWindow: TimeWindow
+  benefitType: BenefitType
+  executionMode: ExecutionMode
+  plannedCount: number
+  doneCount: number
+  confirmedCount: number
 }
 
 type LeaderboardEntry = {
@@ -143,6 +159,7 @@ function App() {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [rewards, setRewards] = useState<Reward[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [weekPlanItems, setWeekPlanItems] = useState<WeekPlanItem[]>([])
   const [dayLeaderboard, setDayLeaderboard] = useState<LeaderboardEntry[]>([])
   const [weekLeaderboard, setWeekLeaderboard] = useState<LeaderboardEntry[]>([])
   const [monthLeaderboard, setMonthLeaderboard] = useState<LeaderboardEntry[]>([])
@@ -173,13 +190,14 @@ function App() {
   const loadData = useCallback(async () => {
     setError('')
     try {
-      const [participantsData, choresData, assignmentsData, rewardsData, tasksData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData] =
+      const [participantsData, choresData, assignmentsData, rewardsData, tasksData, weekPlanData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData] =
         await Promise.all([
           api<Participant[]>('/api/participants'),
           api<Chore[]>('/api/chores'),
           api<Assignment[]>('/api/assignments'),
           api<Reward[]>('/api/rewards'),
           api<Task[]>(`/api/tasks?date=${selectedDate}`),
+          api<WeekPlanItem[]>(`/api/week-plan?date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=day&date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=week&date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=month&date=${selectedDate}`),
@@ -190,6 +208,7 @@ function App() {
       setAssignments(assignmentsData)
       setRewards(rewardsData)
       setTasks(tasksData)
+      setWeekPlanItems(weekPlanData)
       setDayLeaderboard(dayLeaderboardData)
       setWeekLeaderboard(weekLeaderboardData)
       setMonthLeaderboard(monthLeaderboardData)
@@ -236,23 +255,15 @@ function App() {
     return tasks.filter((task) => task.status === 'completed' && task.participantId !== currentParticipant.id)
   }, [currentParticipant, tasks])
 
-  const weekPlan = useMemo(() => {
-    const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
-    return weekdays.map((day, index) => {
-      const isWeeklyDay = index === 5
-      const choresForDay = assignments.filter((assignment) => {
-        if (assignment.schedule === 'daily') {
-          return true
-        }
-        return assignment.schedule === 'weekly' && isWeeklyDay
-      })
-
-      return {
-        day,
-        chores: choresForDay,
-      }
-    })
-  }, [assignments])
+  const displayedWeekPlan = useMemo(() => {
+    if (currentParticipant) {
+      return weekPlanItems.filter((item) => item.participantId === currentParticipant.id)
+    }
+    if (selectedPerson === 'all') {
+      return weekPlanItems
+    }
+    return weekPlanItems.filter((item) => item.participantId === selectedPerson)
+  }, [currentParticipant, selectedPerson, weekPlanItems])
 
   function askForParticipant(participant: Participant) {
     if (currentParticipant?.id === participant.id) {
@@ -730,7 +741,7 @@ function App() {
                         <span className="task-owner">{task.personName}</span>
                       </div>
                       <h3>{task.choreTitle}</h3>
-                      <p>{windowLabels[task.timeWindow]} · {taskRewardLabel(assignments, task)}</p>
+                      <p>{task.schedule === 'daily' ? windowLabels[task.timeWindow] : scheduleLabels[task.schedule]} · {taskRewardLabel(assignments, task)}</p>
                       <div className="tag-row">
                         <span>{benefitLabels[task.benefitType]}</span>
                       </div>
@@ -827,17 +838,27 @@ function App() {
                 <h2>План недели</h2>
               </div>
             </div>
-            <div className="week-grid">
-              {weekPlan.map((day) => (
-                <article className="week-day" key={day.day}>
-                  <h3>{day.day}</h3>
-                  {day.chores.length === 0 && <p>Нет назначений</p>}
-                  {day.chores.slice(0, 5).map((assignment) => (
-                    <span key={`${day.day}-${assignment.id}`}>
-                      {assignment.personName}: {assignment.choreTitle}
-                    </span>
-                  ))}
-                  {day.chores.length > 5 && <small>еще {day.chores.length - 5}</small>}
+            <div className="week-list">
+              {displayedWeekPlan.length === 0 && <p className="empty">На эту неделю пока нет запланированных задач.</p>}
+              {displayedWeekPlan.map((item) => (
+                <article className="week-plan-row" key={`${item.assignmentId}-${item.schedule}`}>
+                  <div>
+                    <div className="task-title-line">
+                      <span className={`status ${item.doneCount >= item.plannedCount ? 'confirmed' : 'pending'}`}>
+                        {item.doneCount}/{item.plannedCount}
+                      </span>
+                      <span className="task-owner">{item.personName}</span>
+                    </div>
+                    <h3>{item.choreTitle}</h3>
+                    <p>
+                      {scheduleLabels[item.schedule]} · {item.schedule === 'daily' ? windowLabels[item.timeWindow] : 'Когда угодно'}
+                    </p>
+                    <div className="tag-row">
+                      <span>{benefitLabels[item.benefitType]}</span>
+                      {item.confirmedCount > 0 && <span>{item.confirmedCount} подтверждено</span>}
+                    </div>
+                  </div>
+                  <strong>{item.doneCount}/{item.plannedCount}</strong>
                 </article>
               ))}
             </div>

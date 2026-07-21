@@ -778,6 +778,32 @@ label {
   font-size: 13px;
 }
 
+.week-list {
+  display: grid;
+  gap: 10px;
+}
+
+.week-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.week-plan-row p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.week-plan-row > strong {
+  color: var(--accent-strong);
+  font-size: 24px;
+}
+
 .month-layout {
   display: grid;
   gap: 16px;
