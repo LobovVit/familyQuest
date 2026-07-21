@@ -6,6 +6,7 @@ type Participant struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	Role      string    `json:"role"`
+	Active    bool      `json:"active"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -65,6 +66,7 @@ type LeaderboardEntry struct {
 	AverageRating  float64 `json:"averageRating"`
 	BehaviorRating float64 `json:"behaviorRating"`
 	BehaviorCount  int     `json:"behaviorCount"`
+	BehaviorSmiles int     `json:"behaviorSmiles"`
 }
 
 type BehaviorRating struct {
@@ -75,4 +77,18 @@ type BehaviorRating struct {
 	Rating              int       `json:"rating"`
 	Comment             string    `json:"comment"`
 	CreatedAt           time.Time `json:"createdAt"`
+}
+
+type Reward struct {
+	ID               int64     `json:"id"`
+	Title            string    `json:"title"`
+	Description      string    `json:"description"`
+	Period           string    `json:"period"`
+	RewardType       string    `json:"rewardType"`
+	StarCost         int       `json:"starCost"`
+	SmileCost        int       `json:"smileCost"`
+	ParticipantIDs   []int64   `json:"participantIds"`
+	ParticipantNames []string  `json:"participantNames"`
+	Active           bool      `json:"active"`
+	CreatedAt        time.Time `json:"createdAt"`
 }

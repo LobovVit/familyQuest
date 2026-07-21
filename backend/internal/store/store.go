@@ -115,12 +115,29 @@ func (s *Store) Seed(ctx context.Context) error {
 			or (p.name = 'Папа' and c.title in ('Вынести мусор', 'Закупить продукты', 'Оплатить семейные счета'))
 		)
 		on conflict (chore_id, participant_id) do update set active = true;
+
+		insert into rewards (title, description, period, reward_type, star_cost, smile_cost) values
+			('Выбор семейного мультфильма', 'Победитель дня выбирает вечерний мультфильм.', 'day', 'champion', 0, 0),
+			('Семейная прогулка по выбору', 'Победитель недели выбирает место для прогулки.', 'week', 'champion', 0, 0),
+			('Маленький приз месяца', 'Победитель месяца получает заранее согласованный приз.', 'month', 'champion', 0, 0),
+			('15 минут игры', 'Можно обменять накопленные звездочки на дополнительное игровое время.', 'day', 'stars', 120, 0),
+			('Выбрать десерт', 'Обмен звездочек на выбор десерта для семейного ужина.', 'week', 'stars', 220, 0),
+			('Доброе семейное спасибо', 'Можно обменять улыбки на маленький теплый бонус от семьи.', 'day', 'smiles', 0, 15),
+			('Выбор доброго дела', 'Обмен улыбок на право выбрать совместное семейное дело.', 'week', 'smiles', 0, 45)
+		on conflict do nothing;
+
+		insert into reward_participants (reward_id, participant_id)
+		select r.id, p.id
+		from rewards r
+		join participants p on p.active = true
+		where r.title in ('Выбор семейного мультфильма', 'Семейная прогулка по выбору', 'Маленький приз месяца', '15 минут игры', 'Выбрать десерт', 'Доброе семейное спасибо', 'Выбор доброго дела')
+		on conflict (reward_id, participant_id) do update set active = true;
 	`)
 	return err
 }
 
 func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
-	rows, err := s.pool.Query(ctx, `select id, name, role, created_at from participants order by id`)
+	rows, err := s.pool.Query(ctx, `select id, name, role, active, created_at from participants where active = true order by id`)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +146,7 @@ func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
 	var participants []Participant
 	for rows.Next() {
 		var p Participant
-		if err := rows.Scan(&p.ID, &p.Name, &p.Role, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		participants = append(participants, p)
@@ -137,13 +154,48 @@ func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
 	return participants, rows.Err()
 }
 
+func (s *Store) CreateParticipant(ctx context.Context, participant Participant, pin string) (Participant, error) {
+	if participant.Role == "" {
+		participant.Role = "child"
+	}
+	if pin == "" {
+		pin = "000000"
+	}
+	err := s.pool.QueryRow(ctx, `
+		insert into participants (name, role, pin_code, active)
+		values ($1, $2, $3, true)
+		on conflict (name) do update set role = excluded.role, pin_code = excluded.pin_code, active = true
+		returning id, name, role, active, created_at
+	`, participant.Name, participant.Role, pin).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
+	return participant, err
+}
+
+func (s *Store) DeleteParticipant(ctx context.Context, participantID int64) error {
+	tag, err := s.pool.Exec(ctx, `
+		update participants
+		set active = false
+		where id = $1
+	`, participantID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	_, err = s.pool.Exec(ctx, `
+		update assignments set active = false where participant_id = $1;
+		update reward_participants set active = false where participant_id = $1;
+	`, participantID)
+	return err
+}
+
 func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, pin string) (Participant, error) {
 	var participant Participant
 	err := s.pool.QueryRow(ctx, `
-		select id, name, role, created_at
+		select id, name, role, active, created_at
 		from participants
-		where id = $1 and pin_code = $2
-	`, participantID, pin).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.CreatedAt)
+		where id = $1 and pin_code = $2 and active = true
+	`, participantID, pin).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Participant{}, ErrInvalidPIN
 	}
@@ -527,7 +579,8 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 		       coalesce(activity.reward, 0)::float as reward,
 		       coalesce(activity.average_rating, 0)::float as average_rating,
 		       coalesce(behavior.behavior_rating, 0)::float as behavior_rating,
-		       coalesce(behavior.behavior_count, 0)::int as behavior_count
+		       coalesce(behavior.behavior_count, 0)::int as behavior_count,
+		       coalesce(behavior.behavior_smiles, 0)::int as behavior_smiles
 		from participants p
 		left join lateral (
 			select count(*)::int as tasks_assigned
@@ -559,12 +612,14 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 		) activity on true
 		left join lateral (
 			select round(avg(rating)::numeric, 2)::float as behavior_rating,
-			       count(*)::int as behavior_count
+			       count(*)::int as behavior_count,
+			       coalesce(sum(rating), 0)::int as behavior_smiles
 			from behavior_ratings
 			where target_participant_id = p.id
 			  and rated_date >= $1::date
 			  and rated_date < $2::date
 		) behavior on true
+		where p.active = true
 		order by reward desc, behavior_rating desc, tasks_done desc, tasks_assigned desc, p.id
 	`, start.Format("2006-01-02"), end.Format("2006-01-02"))
 	if err != nil {
@@ -575,12 +630,162 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 	var entries []LeaderboardEntry
 	for rows.Next() {
 		var entry LeaderboardEntry
-		if err := rows.Scan(&entry.ParticipantID, &entry.Name, &entry.TasksDone, &entry.TasksAssigned, &entry.Reward, &entry.AverageRating, &entry.BehaviorRating, &entry.BehaviorCount); err != nil {
+		if err := rows.Scan(&entry.ParticipantID, &entry.Name, &entry.TasksDone, &entry.TasksAssigned, &entry.Reward, &entry.AverageRating, &entry.BehaviorRating, &entry.BehaviorCount, &entry.BehaviorSmiles); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
 	}
 	return entries, rows.Err()
+}
+
+func (s *Store) ListRewards(ctx context.Context) ([]Reward, error) {
+	rows, err := s.pool.Query(ctx, `
+		select id, title, description, period, reward_type, star_cost, smile_cost, active, created_at
+		from rewards
+		where active = true
+		order by period, reward_type, id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rewards []Reward
+	for rows.Next() {
+		var reward Reward
+		if err := rows.Scan(&reward.ID, &reward.Title, &reward.Description, &reward.Period, &reward.RewardType, &reward.StarCost, &reward.SmileCost, &reward.Active, &reward.CreatedAt); err != nil {
+			return nil, err
+		}
+		rewards = append(rewards, reward)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(rewards) == 0 {
+		return rewards, nil
+	}
+	if err := s.loadRewardParticipants(ctx, rewards); err != nil {
+		return nil, err
+	}
+	return rewards, nil
+}
+
+func (s *Store) CreateReward(ctx context.Context, reward Reward) (Reward, error) {
+	if reward.Period == "" {
+		reward.Period = "week"
+	}
+	if reward.RewardType == "" {
+		reward.RewardType = "champion"
+	}
+	if reward.RewardType == "champion" {
+		reward.StarCost = 0
+		reward.SmileCost = 0
+	}
+	if reward.RewardType == "stars" {
+		reward.SmileCost = 0
+	}
+	if reward.RewardType == "smiles" {
+		reward.StarCost = 0
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return reward, err
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.QueryRow(ctx, `
+		insert into rewards (title, description, period, reward_type, star_cost, smile_cost)
+		values ($1, $2, $3, $4, $5, $6)
+		returning id, title, description, period, reward_type, star_cost, smile_cost, active, created_at
+	`, reward.Title, reward.Description, reward.Period, reward.RewardType, reward.StarCost, reward.SmileCost).
+		Scan(&reward.ID, &reward.Title, &reward.Description, &reward.Period, &reward.RewardType, &reward.StarCost, &reward.SmileCost, &reward.Active, &reward.CreatedAt)
+	if err != nil {
+		return reward, err
+	}
+	if err := syncRewardParticipants(ctx, tx, reward.ID, reward.ParticipantIDs); err != nil {
+		return reward, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return reward, err
+	}
+	rewards, err := s.ListRewards(ctx)
+	if err != nil {
+		return reward, err
+	}
+	for _, item := range rewards {
+		if item.ID == reward.ID {
+			return item, nil
+		}
+	}
+	return reward, nil
+}
+
+func (s *Store) DeleteReward(ctx context.Context, rewardID int64) error {
+	tag, err := s.pool.Exec(ctx, `update rewards set active = false where id = $1`, rewardID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	_, err = s.pool.Exec(ctx, `update reward_participants set active = false where reward_id = $1`, rewardID)
+	return err
+}
+
+func (s *Store) loadRewardParticipants(ctx context.Context, rewards []Reward) error {
+	rewardByID := make(map[int64]*Reward, len(rewards))
+	ids := make([]int64, 0, len(rewards))
+	for index := range rewards {
+		rewardByID[rewards[index].ID] = &rewards[index]
+		ids = append(ids, rewards[index].ID)
+	}
+	rows, err := s.pool.Query(ctx, `
+		select rp.reward_id, p.id, p.name
+		from reward_participants rp
+		join participants p on p.id = rp.participant_id
+		where rp.active = true and p.active = true and rp.reward_id = any($1)
+		order by rp.reward_id, p.id
+	`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rewardID int64
+		var participantID int64
+		var name string
+		if err := rows.Scan(&rewardID, &participantID, &name); err != nil {
+			return err
+		}
+		reward := rewardByID[rewardID]
+		if reward == nil {
+			continue
+		}
+		reward.ParticipantIDs = append(reward.ParticipantIDs, participantID)
+		reward.ParticipantNames = append(reward.ParticipantNames, name)
+	}
+	return rows.Err()
+}
+
+func syncRewardParticipants(ctx context.Context, tx pgx.Tx, rewardID int64, participantIDs []int64) error {
+	_, err := tx.Exec(ctx, `update reward_participants set active = false where reward_id = $1`, rewardID)
+	if err != nil {
+		return err
+	}
+	for _, participantID := range participantIDs {
+		if participantID == 0 {
+			continue
+		}
+		_, err := tx.Exec(ctx, `
+			insert into reward_participants (reward_id, participant_id)
+			values ($1, $2)
+			on conflict (reward_id, participant_id) do update set active = true
+		`, rewardID, participantID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func periodBounds(period string, at time.Time) (time.Time, time.Time) {

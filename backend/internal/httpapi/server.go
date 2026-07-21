@@ -30,7 +30,7 @@ func NewServer(store *store.Store, corsOrigin string) http.Handler {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -44,6 +44,8 @@ func (s *Server) routes() {
 	})
 	s.mux.HandleFunc("POST /api/session", s.verifySession)
 	s.mux.HandleFunc("GET /api/participants", s.listParticipants)
+	s.mux.HandleFunc("POST /api/participants", s.createParticipant)
+	s.mux.HandleFunc("DELETE /api/participants/", s.deleteParticipant)
 	s.mux.HandleFunc("GET /api/chores", s.listChores)
 	s.mux.HandleFunc("POST /api/chores", s.createChore)
 	s.mux.HandleFunc("PUT /api/chores/", s.updateChore)
@@ -53,6 +55,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/tasks/", s.taskAction)
 	s.mux.HandleFunc("GET /api/leaderboard", s.leaderboard)
 	s.mux.HandleFunc("POST /api/behavior-ratings", s.rateBehavior)
+	s.mux.HandleFunc("GET /api/rewards", s.listRewards)
+	s.mux.HandleFunc("POST /api/rewards", s.createReward)
+	s.mux.HandleFunc("DELETE /api/rewards/", s.deleteReward)
 }
 
 func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +80,38 @@ func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listParticipants(w http.ResponseWriter, r *http.Request) {
 	participants, err := s.store.ListParticipants(r.Context())
 	respond(w, participants, err)
+}
+
+func (s *Server) createParticipant(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Name string `json:"name"`
+		Role string `json:"role"`
+		PIN  string `json:"pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if request.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if len(request.PIN) != 6 {
+		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
+		return
+	}
+	participant, err := s.store.CreateParticipant(r.Context(), store.Participant{Name: request.Name, Role: request.Role}, request.PIN)
+	respondCreated(w, participant, err)
+}
+
+func (s *Server) deleteParticipant(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDPath(r.URL.Path, "api", "participants")
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown participant")
+		return
+	}
+	err := s.store.DeleteParticipant(r.Context(), id)
+	respond(w, map[string]string{"status": "deleted"}, err)
 }
 
 func (s *Server) listChores(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +229,35 @@ func (s *Server) rateBehavior(w http.ResponseWriter, r *http.Request) {
 	date := parseDate(request.Date)
 	behavior, err := s.store.RateBehavior(r.Context(), date, request.RaterParticipantID, request.TargetParticipantID, request.Rating, request.Comment)
 	respondCreated(w, behavior, err)
+}
+
+func (s *Server) listRewards(w http.ResponseWriter, r *http.Request) {
+	rewards, err := s.store.ListRewards(r.Context())
+	respond(w, rewards, err)
+}
+
+func (s *Server) createReward(w http.ResponseWriter, r *http.Request) {
+	var reward store.Reward
+	if err := json.NewDecoder(r.Body).Decode(&reward); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if reward.Title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	created, err := s.store.CreateReward(r.Context(), reward)
+	respondCreated(w, created, err)
+}
+
+func (s *Server) deleteReward(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDPath(r.URL.Path, "api", "rewards")
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown reward")
+		return
+	}
+	err := s.store.DeleteReward(r.Context(), id)
+	respond(w, map[string]string{"status": "deleted"}, err)
 }
 
 func parseTaskAction(path string) (int64, string, bool) {

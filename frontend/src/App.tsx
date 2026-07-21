@@ -7,6 +7,7 @@ type Participant = {
   id: number
   name: string
   role: 'parent' | 'child'
+  active: boolean
 }
 
 type Chore = {
@@ -59,6 +60,7 @@ type LeaderboardEntry = {
   averageRating: number
   behaviorRating: number
   behaviorCount: number
+  behaviorSmiles: number
 }
 
 type PinPrompt = {
@@ -72,6 +74,20 @@ type BenefitType = 'self' | 'family' | 'care' | 'home'
 type ExecutionMode = 'assigned' | 'together' | 'adult_child' | 'anyone'
 type ActiveTab = 'day' | 'week' | 'month' | 'catalog' | 'users'
 type ChoreDraft = Omit<Chore, 'id' | 'participantNames'>
+type RewardPeriod = 'day' | 'week' | 'month'
+type RewardType = 'champion' | 'stars' | 'smiles'
+
+type Reward = {
+  id: number
+  title: string
+  description: string
+  period: RewardPeriod
+  rewardType: RewardType
+  starCost: number
+  smileCost: number
+  participantIds: number[]
+  participantNames: string[]
+}
 
 const scheduleLabels: Record<Schedule, string> = {
   once: 'Разово',
@@ -90,6 +106,18 @@ const windowLabels: Record<TimeWindow, string> = {
 const roleLabels: Record<Participant['role'], string> = {
   parent: 'Взрослый',
   child: 'Дошкольник',
+}
+
+const rewardPeriodLabels: Record<RewardPeriod, string> = {
+  day: 'День',
+  week: 'Неделя',
+  month: 'Месяц',
+}
+
+const rewardTypeLabels: Record<RewardType, string> = {
+  champion: 'Чемпионская',
+  stars: 'За звездочки',
+  smiles: 'За улыбки',
 }
 
 const benefitLabels: Record<BenefitType, string> = {
@@ -119,6 +147,7 @@ function App() {
   const [participants, setParticipants] = useState<Participant[]>([])
   const [chores, setChores] = useState<Chore[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [rewards, setRewards] = useState<Reward[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [dayLeaderboard, setDayLeaderboard] = useState<LeaderboardEntry[]>([])
   const [weekLeaderboard, setWeekLeaderboard] = useState<LeaderboardEntry[]>([])
@@ -135,15 +164,26 @@ function App() {
   const [isCheckingPin, setIsCheckingPin] = useState(false)
   const [editingChoreId, setEditingChoreId] = useState<number | 'new' | null>(null)
   const [choreDraft, setChoreDraft] = useState<ChoreDraft>(() => emptyChoreDraft())
+  const [newParticipant, setNewParticipant] = useState({ name: '', role: 'child' as Participant['role'], pin: '' })
+  const [newReward, setNewReward] = useState({
+    title: '',
+    description: '',
+    period: 'week' as RewardPeriod,
+    rewardType: 'champion' as RewardType,
+    starCost: 100,
+    smileCost: 20,
+    participantIds: [] as number[],
+  })
 
   const loadData = useCallback(async () => {
     setError('')
     try {
-      const [participantsData, choresData, assignmentsData, tasksData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData] =
+      const [participantsData, choresData, assignmentsData, rewardsData, tasksData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData] =
         await Promise.all([
           api<Participant[]>('/api/participants'),
           api<Chore[]>('/api/chores'),
           api<Assignment[]>('/api/assignments'),
+          api<Reward[]>('/api/rewards'),
           api<Task[]>(`/api/tasks?date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=day&date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=week&date=${selectedDate}`),
@@ -153,6 +193,7 @@ function App() {
       setParticipants(participantsData)
       setChores(choresData)
       setAssignments(assignmentsData)
+      setRewards(rewardsData)
       setTasks(tasksData)
       setDayLeaderboard(dayLeaderboardData)
       setWeekLeaderboard(weekLeaderboardData)
@@ -427,6 +468,101 @@ function App() {
     }
   }
 
+  async function createParticipant(event: React.FormEvent) {
+    event.preventDefault()
+    if (!requireCurrentParticipant()) {
+      return
+    }
+    if (!newParticipant.name.trim() || newParticipant.pin.length !== 6) {
+      setError('Укажите имя и PIN из 6 цифр')
+      return
+    }
+    setError('')
+    try {
+      await api('/api/participants', {
+        method: 'POST',
+        body: JSON.stringify({ ...newParticipant, name: newParticipant.name.trim() }),
+      })
+      setNewParticipant({ name: '', role: 'child', pin: '' })
+      await loadData()
+    } catch (participantError) {
+      setError(participantError instanceof Error ? participantError.message : 'Не удалось добавить пользователя')
+    }
+  }
+
+  async function deleteParticipant(participant: Participant) {
+    if (!requireCurrentParticipant()) {
+      return
+    }
+    setError('')
+    try {
+      await api(`/api/participants/${participant.id}`, { method: 'DELETE' })
+      if (currentParticipant?.id === participant.id) {
+        enterViewMode()
+      }
+      await loadData()
+    } catch (participantError) {
+      setError(participantError instanceof Error ? participantError.message : 'Не удалось удалить пользователя')
+    }
+  }
+
+  function toggleRewardParticipant(participantId: number) {
+    setNewReward((current) => {
+      const hasParticipant = current.participantIds.includes(participantId)
+      return {
+        ...current,
+        participantIds: hasParticipant
+          ? current.participantIds.filter((id) => id !== participantId)
+          : [...current.participantIds, participantId],
+      }
+    })
+  }
+
+  async function createReward(event: React.FormEvent) {
+    event.preventDefault()
+    if (!requireCurrentParticipant()) {
+      return
+    }
+    if (!newReward.title.trim()) {
+      setError('Добавьте название награды')
+      return
+    }
+    if (newReward.participantIds.length === 0) {
+      setError('Выберите хотя бы одного пользователя для награды')
+      return
+    }
+    setError('')
+    try {
+      await api('/api/rewards', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...newReward,
+          title: newReward.title.trim(),
+          starCost: newReward.rewardType === 'champion' ? 0 : Math.max(1, Number(newReward.starCost) || 1),
+          smileCost: newReward.rewardType === 'smiles' ? Math.max(1, Number(newReward.smileCost) || 1) : 0,
+          ...(newReward.rewardType !== 'stars' ? { starCost: 0 } : {}),
+        }),
+      })
+      setNewReward({ title: '', description: '', period: 'week', rewardType: 'champion', starCost: 100, smileCost: 20, participantIds: [] })
+      await loadData()
+    } catch (rewardError) {
+      setError(rewardError instanceof Error ? rewardError.message : 'Не удалось добавить награду')
+    }
+  }
+
+  async function deleteReward(reward: Reward) {
+    if (!requireCurrentParticipant()) {
+      return
+    }
+    setError('')
+    try {
+      await api(`/api/rewards/${reward.id}`, { method: 'DELETE' })
+      await loadData()
+    } catch (rewardError) {
+      setError(rewardError instanceof Error ? rewardError.message : 'Не удалось удалить награду')
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -651,7 +787,7 @@ function App() {
                           <div className="rating-buttons" aria-label={`Оценка поведения ${person.name}`}>
                             {[1, 2, 3, 4, 5].map((rating) => (
                               <button disabled={busyBehavior === person.id} key={rating} onClick={() => rateBehavior(person, rating)}>
-                                {rating}
+                                {rating} 🙂
                               </button>
                             ))}
                           </div>
@@ -715,7 +851,7 @@ function App() {
                 <p>
                   {entry.tasksDone}/{entry.tasksAssigned} выполнено · {completionPercent(entry)}%
                 </p>
-                <small>Дела {entry.averageRating.toFixed(1)}/5 · Поведение {behaviorLabel(entry)}</small>
+                <small>Дела {entry.averageRating.toFixed(1)}/5 · Поведение {behaviorLabel(entry)} · {entry.behaviorSmiles} 🙂</small>
               </article>
             ))}
           </div>
@@ -793,7 +929,7 @@ function App() {
         <section className="users-grid">
           {participants.map((person) => (
             <article className="user-card" key={person.id}>
-              <span className={`avatar ${person.role}`}>{person.name.slice(0, 1)}</span>
+              <span className={`avatar ${person.role}`}>{participantAvatar(person)}</span>
               <div>
                 <h2>{person.name}</h2>
                 <p>{roleLabels[person.role]}</p>
@@ -808,15 +944,144 @@ function App() {
                   <dd>{tasks.filter((task) => task.participantId === person.id).length} дел</dd>
                 </div>
               </dl>
-              <button disabled>Изменить PIN</button>
+              <button type="button" onClick={() => deleteParticipant(person)}>
+                Удалить
+              </button>
             </article>
           ))}
-          <div className="panel">
-            <h2>Настройки семьи</h2>
-            <p className="settings-note">
-              Сейчас участники создаются стартовыми данными. Следующим шагом сюда добавим смену PIN, новые профили и права родителей.
-            </p>
-          </div>
+          <section className="panel">
+            <h2>Добавить пользователя</h2>
+            <form className="stack-form" onSubmit={createParticipant}>
+              <label>
+                Имя
+                <input value={newParticipant.name} onChange={(event) => setNewParticipant({ ...newParticipant, name: event.target.value })} />
+              </label>
+              <div className="form-row">
+                <label>
+                  Роль
+                  <select
+                    value={newParticipant.role}
+                    onChange={(event) => setNewParticipant({ ...newParticipant, role: event.target.value as Participant['role'] })}
+                  >
+                    <option value="child">Дошкольник</option>
+                    <option value="parent">Взрослый</option>
+                  </select>
+                </label>
+                <label>
+                  PIN
+                  <input
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={newParticipant.pin}
+                    onChange={(event) => setNewParticipant({ ...newParticipant, pin: event.target.value.replace(/\D/g, '').slice(0, 6) })}
+                  />
+                </label>
+              </div>
+              <button type="submit">Добавить пользователя</button>
+            </form>
+          </section>
+
+          <section className="panel rewards-panel">
+            <div className="section-heading compact">
+              <h2>Награды</h2>
+            </div>
+            <div className="reward-list">
+              {rewards.length === 0 && <p className="settings-note">Добавьте первые награды для обмена звездочек или чемпионства.</p>}
+              {rewards.map((reward) => (
+                <article className="reward-card" key={reward.id}>
+                  <div>
+                    <h3>{reward.title}</h3>
+                    <p>{reward.description}</p>
+                  </div>
+                  <div className="tag-row">
+                    <span>{rewardTypeLabels[reward.rewardType]}</span>
+                    <span>{rewardPeriodLabels[reward.period]}</span>
+                    {reward.rewardType === 'stars' && <span>{reward.starCost} ⭐</span>}
+                    {reward.rewardType === 'smiles' && <span>{reward.smileCost} 🙂</span>}
+                  </div>
+                  <div className="assignee-row">
+                    {reward.participantNames.map((name) => (
+                      <span key={name}>{avatarForName(name)} {name}</span>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => deleteReward(reward)}>
+                    Удалить
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel rewards-panel">
+            <h2>Добавить награду</h2>
+            <form className="stack-form" onSubmit={createReward}>
+              <label>
+                Название
+                <input value={newReward.title} onChange={(event) => setNewReward({ ...newReward, title: event.target.value })} />
+              </label>
+              <label>
+                Описание
+                <textarea value={newReward.description} onChange={(event) => setNewReward({ ...newReward, description: event.target.value })} />
+              </label>
+              <div className="form-row">
+                <label>
+                  Период
+                  <select value={newReward.period} onChange={(event) => setNewReward({ ...newReward, period: event.target.value as RewardPeriod })}>
+                    {Object.entries(rewardPeriodLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Тип
+                  <select
+                    value={newReward.rewardType}
+                    onChange={(event) => setNewReward({ ...newReward, rewardType: event.target.value as RewardType })}
+                  >
+                    {Object.entries(rewardTypeLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {newReward.rewardType === 'stars' && (
+                <label>
+                  Стоимость в звездочках
+                  <input
+                    min="1"
+                    type="number"
+                    value={newReward.starCost}
+                    onChange={(event) => setNewReward({ ...newReward, starCost: Number(event.target.value) })}
+                  />
+                </label>
+              )}
+              {newReward.rewardType === 'smiles' && (
+                <label>
+                  Стоимость в улыбках
+                  <input
+                    min="1"
+                    type="number"
+                    value={newReward.smileCost}
+                    onChange={(event) => setNewReward({ ...newReward, smileCost: Number(event.target.value) })}
+                  />
+                </label>
+              )}
+              <div className="participant-picker" aria-label="Пользователи награды">
+                {participants.map((person) => (
+                  <label className={newReward.participantIds.includes(person.id) ? 'active' : ''} key={person.id}>
+                    <input checked={newReward.participantIds.includes(person.id)} onChange={() => toggleRewardParticipant(person.id)} type="checkbox" />
+                    <span>{participantAvatar(person)}</span>
+                    <strong>{person.name}</strong>
+                  </label>
+                ))}
+              </div>
+              <button type="submit">Добавить награду</button>
+            </form>
+          </section>
         </section>
       )}
     </main>
@@ -845,7 +1110,7 @@ function Leaderboard({ entries, title }: { entries: LeaderboardEntry[]; title: s
             <span className="leaderboard-name">{entry.name}</span>
             <strong>{entry.reward.toFixed(0)} ⭐</strong>
             <small>
-              {entry.tasksDone}/{entry.tasksAssigned} дел · дела {entry.averageRating.toFixed(1)}/5 · поведение {behaviorLabel(entry)}
+              {entry.tasksDone}/{entry.tasksAssigned} дел · дела {entry.averageRating.toFixed(1)}/5 · поведение {behaviorLabel(entry)} · {entry.behaviorSmiles} 🙂
             </small>
           </li>
         ))}

@@ -3,10 +3,12 @@ create table if not exists participants (
 	name text not null unique,
 	role text not null check (role in ('parent', 'child')),
 	pin_code text not null default '000000' check (pin_code ~ '^[0-9]{6}$'),
+	active boolean not null default true,
 	created_at timestamptz not null default now()
 );
 
 alter table participants add column if not exists pin_code text not null default '000000';
+alter table participants add column if not exists active boolean not null default true;
 
 create table if not exists chores (
 	id bigserial primary key,
@@ -72,4 +74,30 @@ create table if not exists behavior_ratings (
 	created_at timestamptz not null default now(),
 	unique (rated_date, rater_participant_id, target_participant_id),
 	check (rater_participant_id <> target_participant_id)
+);
+
+create table if not exists rewards (
+	id bigserial primary key,
+	title text not null,
+	description text not null default '',
+	period text not null check (period in ('day', 'week', 'month')),
+	reward_type text not null check (reward_type in ('champion', 'stars', 'smiles')),
+	star_cost integer not null default 0 check (star_cost >= 0),
+	smile_cost integer not null default 0 check (smile_cost >= 0),
+	active boolean not null default true,
+	created_at timestamptz not null default now()
+);
+
+create unique index if not exists rewards_title_unique on rewards (title);
+alter table rewards add column if not exists smile_cost integer not null default 0;
+alter table rewards drop constraint if exists rewards_reward_type_check;
+alter table rewards add constraint rewards_reward_type_check check (reward_type in ('champion', 'stars', 'smiles'));
+
+create table if not exists reward_participants (
+	id bigserial primary key,
+	reward_id bigint not null references rewards(id) on delete cascade,
+	participant_id bigint not null references participants(id) on delete cascade,
+	active boolean not null default true,
+	created_at timestamptz not null default now(),
+	unique (reward_id, participant_id)
 );
