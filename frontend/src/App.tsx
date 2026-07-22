@@ -266,6 +266,11 @@ function App() {
     dateInputRef.current?.click()
   }
 
+  function changeSelectedDate(value: string) {
+    setSelectedDate(value)
+    requestAnimationFrame(() => dateInputRef.current?.blur())
+  }
+
   async function verifyPin(event: React.FormEvent) {
     event.preventDefault()
     if (!pinPrompt || pinPrompt.pin.length !== 6) {
@@ -618,7 +623,7 @@ function App() {
                 className="date-native-input"
                 type="date"
                 value={selectedDate}
-                onChange={(event) => setSelectedDate(event.target.value)}
+                onChange={(event) => changeSelectedDate(event.target.value)}
               />
             </div>
           </div>
