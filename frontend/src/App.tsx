@@ -1195,12 +1195,8 @@ function taskRewardLabel(assignments: Assignment[], task: Task) {
 
 function formatDate(value: string) {
   const date = new Date(`${value}T00:00:00`)
-  const formatted = new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(date)
-  return formatted.replace(/ ([а-яё])/, (_, letter: string) => ` ${letter.toUpperCase()}`)
+  const months = ['Января', 'Февраля', 'Марта', 'Апреля', 'Мая', 'Июня', 'Июля', 'Августа', 'Сентября', 'Октября', 'Ноября', 'Декабря']
+  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`
 }
 
 function behaviorLabel(entry: LeaderboardEntry) {
