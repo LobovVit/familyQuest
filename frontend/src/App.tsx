@@ -219,17 +219,6 @@ function App() {
     return tasks
   }, [currentParticipant, tasks])
 
-  const totals = useMemo(() => {
-    const confirmed = filteredTasks.filter((task) => task.status === 'confirmed')
-    const completed = filteredTasks.filter((task) => task.status !== 'pending')
-    return {
-      total: filteredTasks.length,
-      completed: completed.length,
-      confirmed: confirmed.length,
-      reward: confirmed.reduce((sum, task) => sum + task.reward, 0),
-    }
-  }, [filteredTasks])
-
   const maxTasks = useMemo(() => tasks.filter((task) => task.personName === 'Макс'), [tasks])
   const maxCompleted = maxTasks.filter((task) => task.status !== 'pending').length
   const maxProgress = maxTasks.length === 0 ? 0 : Math.round((maxCompleted / maxTasks.length) * 100)
@@ -579,7 +568,7 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="topbar-actions">
+        <div className={`topbar-actions ${currentParticipant ? 'compact' : ''}`}>
           {!currentParticipant ? (
             <section className="topbar-focus" aria-label="Фокус для Макса">
               <div>
@@ -590,14 +579,7 @@ function App() {
                 <span style={{ width: `${maxProgress}%` }} />
               </div>
             </section>
-          ) : (
-            <section className="summary-grid topbar-summary" aria-label="Итоги текущего плана">
-              <Metric label="На сегодня" value={totals.total} />
-              <Metric label="Отмечено" value={totals.completed} />
-              <Metric label="Подтверждено" value={totals.confirmed} />
-              <Metric label="Начислено" value={`${Math.round(totals.reward)} ⭐`} />
-            </section>
-          )}
+          ) : null}
           <div className="date-card">
             <select aria-label="Раздел FamilyQuest" value={activeTab} onChange={(event) => setActiveTab(event.target.value as ActiveTab)}>
               {availableTabs.map((tab) => (
@@ -1048,15 +1030,6 @@ function App() {
         </section>
       )}
     </main>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
   )
 }
 

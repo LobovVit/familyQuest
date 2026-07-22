@@ -5,7 +5,6 @@
 }
 
 .topbar,
-.summary-grid,
 .workspace,
 .catalog,
 .form-row {
@@ -87,7 +86,6 @@ h3 {
 }
 
 .date-card,
-.metric,
 .panel,
 .task-panel,
 .max-progress {
@@ -104,7 +102,6 @@ h3 {
 }
 
 .date-card span,
-.metric span,
 .leaderboard small,
 .task-main p,
 .chore-grid p,
@@ -134,24 +131,9 @@ label {
   align-items: stretch;
 }
 
-.topbar-summary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  min-width: 0;
-}
-
-.topbar-summary .metric {
-  min-height: 54px;
-  padding: 10px 12px;
-}
-
-.topbar-summary .metric strong {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.topbar-summary .metric span {
-  font-size: 11px;
+.topbar-actions.compact {
+  grid-template-columns: 260px 116px;
+  justify-content: end;
 }
 
 .topbar-focus {
@@ -372,23 +354,6 @@ label {
 .family-avatar {
   background: var(--gold-bg);
   font-size: 24px;
-}
-
-.summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 16px;
-}
-
-.metric {
-  display: grid;
-  gap: 8px;
-  padding: 16px;
-}
-
-.metric strong {
-  color: var(--text-strong);
-  font-size: 28px;
-  line-height: 1;
 }
 
 .max-progress {
@@ -1059,12 +1024,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .topbar-summary {
-    min-width: 0;
-  }
-
-  .family-board,
-  .summary-grid {
+  .family-board {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1081,10 +1041,6 @@ textarea {
   .family-board,
   .form-row {
     grid-template-columns: 1fr;
-  }
-
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .chore-card.editing {
@@ -1104,16 +1060,16 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .topbar-actions.compact {
+    grid-template-columns: 1fr;
+  }
+
   .date-card {
     order: 2;
   }
 
   .user-switcher {
     order: 3;
-  }
-
-  .topbar-summary {
-    order: 1;
   }
 
   .topbar-focus {
