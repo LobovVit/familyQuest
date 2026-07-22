@@ -154,6 +154,25 @@ label {
   font-size: 11px;
 }
 
+.topbar-focus {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(160px, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.date-readable {
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 900;
+}
+
 .user-switcher {
   position: relative;
 }
@@ -376,6 +395,12 @@ label {
 .workspace {
   grid-template-columns: minmax(0, 1fr) 380px;
   align-items: start;
+}
+
+.view-dashboard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .task-panel,
@@ -1005,6 +1030,11 @@ textarea {
     grid-template-columns: minmax(0, 1fr) 230px 116px;
   }
 
+  .topbar-focus,
+  .view-dashboard {
+    grid-template-columns: 1fr;
+  }
+
   .topbar-summary {
     min-width: 0;
   }
@@ -1059,6 +1089,10 @@ textarea {
   }
 
   .topbar-summary {
+    order: 1;
+  }
+
+  .topbar-focus {
     order: 1;
   }
 

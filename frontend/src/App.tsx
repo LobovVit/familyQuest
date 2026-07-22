@@ -52,21 +52,6 @@ type Task = {
   reward: number
 }
 
-type WeekPlanItem = {
-  assignmentId: number
-  choreId: number
-  participantId: number
-  choreTitle: string
-  personName: string
-  schedule: Schedule
-  timeWindow: TimeWindow
-  benefitType: BenefitType
-  executionMode: ExecutionMode
-  plannedCount: number
-  doneCount: number
-  confirmedCount: number
-}
-
 type LeaderboardEntry = {
   participantId: number
   name: string
@@ -88,7 +73,7 @@ type Schedule = 'once' | 'daily' | 'weekly' | 'monthly'
 type TimeWindow = '' | 'morning' | 'day' | 'evening'
 type BenefitType = 'self' | 'family' | 'care' | 'home'
 type ExecutionMode = 'assigned' | 'together' | 'adult_child' | 'anyone'
-type ActiveTab = 'day' | 'week' | 'month' | 'catalog' | 'users'
+type ActiveTab = 'day' | 'catalog' | 'users'
 type ChoreDraft = Omit<Chore, 'id' | 'participantNames'>
 type RewardPeriod = 'day' | 'week' | 'month'
 type RewardType = 'champion' | 'stars' | 'smiles'
@@ -144,12 +129,10 @@ const benefitLabels: Record<BenefitType, string> = {
   home: 'Дом',
 }
 
-const tabs: Array<{ id: ActiveTab; label: string }> = [
-  { id: 'day', label: 'План дня' },
-  { id: 'week', label: 'План недели' },
-  { id: 'month', label: 'Месячный рейтинг' },
-  { id: 'catalog', label: 'Справочник обязанностей' },
-  { id: 'users', label: 'Настройки пользователей' },
+const tabs: Array<{ id: ActiveTab; label: string; adultsOnly?: boolean }> = [
+  { id: 'day', label: 'Планер' },
+  { id: 'catalog', label: 'Справочник обязанностей', adultsOnly: true },
+  { id: 'users', label: 'Настройки пользователей', adultsOnly: true },
 ]
 
 function App() {
@@ -159,11 +142,9 @@ function App() {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [rewards, setRewards] = useState<Reward[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
-  const [weekPlanItems, setWeekPlanItems] = useState<WeekPlanItem[]>([])
   const [dayLeaderboard, setDayLeaderboard] = useState<LeaderboardEntry[]>([])
   const [weekLeaderboard, setWeekLeaderboard] = useState<LeaderboardEntry[]>([])
   const [monthLeaderboard, setMonthLeaderboard] = useState<LeaderboardEntry[]>([])
-  const [selectedPerson, setSelectedPerson] = useState<number | 'all'>('all')
   const [activeTab, setActiveTab] = useState<ActiveTab>('day')
   const [busyTask, setBusyTask] = useState<number | null>(null)
   const [busyBehavior, setBusyBehavior] = useState<number | null>(null)
@@ -190,14 +171,13 @@ function App() {
   const loadData = useCallback(async () => {
     setError('')
     try {
-      const [participantsData, choresData, assignmentsData, rewardsData, tasksData, weekPlanData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData] =
+      const [participantsData, choresData, assignmentsData, rewardsData, tasksData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData] =
         await Promise.all([
           api<Participant[]>('/api/participants'),
           api<Chore[]>('/api/chores'),
           api<Assignment[]>('/api/assignments'),
           api<Reward[]>('/api/rewards'),
           api<Task[]>(`/api/tasks?date=${selectedDate}`),
-          api<WeekPlanItem[]>(`/api/week-plan?date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=day&date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=week&date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=month&date=${selectedDate}`),
@@ -208,7 +188,6 @@ function App() {
       setAssignments(assignmentsData)
       setRewards(rewardsData)
       setTasks(tasksData)
-      setWeekPlanItems(weekPlanData)
       setDayLeaderboard(dayLeaderboardData)
       setWeekLeaderboard(weekLeaderboardData)
       setMonthLeaderboard(monthLeaderboardData)
@@ -223,15 +202,22 @@ function App() {
     void loadData()
   }, [loadData])
 
+  const availableTabs = useMemo(() => {
+    return tabs.filter((tab) => !tab.adultsOnly || currentParticipant?.role === 'parent')
+  }, [currentParticipant])
+
+  useEffect(() => {
+    if (!availableTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab('day')
+    }
+  }, [activeTab, availableTabs])
+
   const filteredTasks = useMemo(() => {
     if (currentParticipant) {
       return tasks.filter((task) => task.participantId === currentParticipant.id)
     }
-    if (selectedPerson === 'all') {
-      return tasks
-    }
-    return tasks.filter((task) => task.participantId === selectedPerson)
-  }, [currentParticipant, selectedPerson, tasks])
+    return tasks
+  }, [currentParticipant, tasks])
 
   const totals = useMemo(() => {
     const confirmed = filteredTasks.filter((task) => task.status === 'confirmed')
@@ -255,16 +241,6 @@ function App() {
     return tasks.filter((task) => task.status === 'completed' && task.participantId !== currentParticipant.id)
   }, [currentParticipant, tasks])
 
-  const displayedWeekPlan = useMemo(() => {
-    if (currentParticipant) {
-      return weekPlanItems.filter((item) => item.participantId === currentParticipant.id)
-    }
-    if (selectedPerson === 'all') {
-      return weekPlanItems
-    }
-    return weekPlanItems.filter((item) => item.participantId === selectedPerson)
-  }, [currentParticipant, selectedPerson, weekPlanItems])
-
   function askForParticipant(participant: Participant) {
     if (currentParticipant?.id === participant.id) {
       setIsUserMenuOpen(false)
@@ -277,7 +253,6 @@ function App() {
 
   function enterViewMode() {
     setCurrentParticipant(null)
-    setSelectedPerson('all')
     setError('')
     setIsUserMenuOpen(false)
   }
@@ -299,7 +274,6 @@ function App() {
         }),
       })
       setCurrentParticipant(participant)
-      setSelectedPerson(participant.id)
       setPinPrompt(null)
     } catch (pinError) {
       setError(pinError instanceof Error ? pinError.message : 'Неверный PIN')
@@ -596,20 +570,33 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-actions">
-          <section className="summary-grid topbar-summary" aria-label="Итоги текущего плана">
-            <Metric label="На сегодня" value={totals.total} />
-            <Metric label="Отмечено" value={totals.completed} />
-            <Metric label="Подтверждено" value={totals.confirmed} />
-            <Metric label="Начислено" value={`${Math.round(totals.reward)} ⭐`} />
-          </section>
+          {!currentParticipant ? (
+            <section className="topbar-focus" aria-label="Фокус для Макса">
+              <div>
+                <p className="eyebrow">Фокус для Макса</p>
+                <h2>{maxCompleted}/{maxTasks.length} дел отмечено</h2>
+              </div>
+              <div className="progress-track" aria-label={`Прогресс Макса ${maxProgress}%`}>
+                <span style={{ width: `${maxProgress}%` }} />
+              </div>
+            </section>
+          ) : (
+            <section className="summary-grid topbar-summary" aria-label="Итоги текущего плана">
+              <Metric label="На сегодня" value={totals.total} />
+              <Metric label="Отмечено" value={totals.completed} />
+              <Metric label="Подтверждено" value={totals.confirmed} />
+              <Metric label="Начислено" value={`${Math.round(totals.reward)} ⭐`} />
+            </section>
+          )}
           <div className="date-card">
             <select aria-label="Раздел FamilyQuest" value={activeTab} onChange={(event) => setActiveTab(event.target.value as ActiveTab)}>
-              {tabs.map((tab) => (
+              {availableTabs.map((tab) => (
                 <option key={tab.id} value={tab.id}>
                   {tab.label}
                 </option>
               ))}
             </select>
+            <span className="date-readable">{formatDate(selectedDate)}</span>
             <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
           </div>
           <div className="user-switcher">
@@ -681,104 +668,68 @@ function App() {
 
       {activeTab === 'day' && (
         <>
-          {!currentParticipant && (
-            <section className="family-board" aria-label="Семья">
-              <button className={`person-card all-card ${selectedPerson === 'all' ? 'active' : ''}`} onClick={() => setSelectedPerson('all')}>
-                <span className="avatar family-avatar">👨‍👩‍👦</span>
-                <strong>Вся семья</strong>
-                <small>{tasks.length} дел на день</small>
-              </button>
-              {participants.map((person) => {
-                const personTasks = tasks.filter((task) => task.participantId === person.id)
-                const done = personTasks.filter((task) => task.status !== 'pending').length
-
-                return (
-                  <button
-                    className={`person-card ${selectedPerson === person.id ? 'active' : ''}`}
-                    key={person.id}
-                    onClick={() => setSelectedPerson(person.id)}
-                  >
-                    <span className={`avatar ${person.role}`}>{participantAvatar(person)}</span>
-                    <strong>{person.name}</strong>
-                    <small>
-                      {roleLabels[person.role]} · {done}/{personTasks.length}
-                    </small>
-                  </button>
-                )
-              })}
+          {!currentParticipant ? (
+            <section className="view-dashboard">
+              <Leaderboard title="Рейтинг дня" entries={dayLeaderboard} />
+              <Leaderboard title="Рейтинг недели" entries={weekLeaderboard} />
+              <Leaderboard title="Рейтинг месяца" entries={monthLeaderboard} />
             </section>
-          )}
+          ) : (
+            <section className="workspace">
+              <div className="task-panel">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">{formatDate(selectedDate)}</p>
+                    <h2>Задачи дня</h2>
+                  </div>
+                </div>
 
-          {(!currentParticipant || currentParticipant.name === 'Макс') && (
-            <section className="max-progress">
-              <div>
-                <p className="eyebrow">Фокус для Макса</p>
-                <h2>{maxCompleted}/{maxTasks.length} детских дел отмечено</h2>
-              </div>
-              <div className="progress-track" aria-label={`Прогресс Макса ${maxProgress}%`}>
-                <span style={{ width: `${maxProgress}%` }} />
-              </div>
-            </section>
-          )}
-
-          <section className="workspace">
-            <div className="task-panel">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">{formatDate(selectedDate)}</p>
-                  <h2>Задачи дня</h2>
+                <div className="task-list">
+                  {isLoading && <p className="empty">Загружаю семейный план...</p>}
+                  {!isLoading && filteredTasks.length === 0 && <p className="empty">Назначьте обязанности, и здесь появится план дня.</p>}
+                  {filteredTasks.map((task) => (
+                    <article className="task-row" key={task.id}>
+                      <div className="task-main">
+                        <div className="task-title-line">
+                          <span className={`status ${task.status}`}>{statusLabel(task.status)}</span>
+                          <span className="task-owner">{task.personName}</span>
+                        </div>
+                        <h3>{task.choreTitle}</h3>
+                        <p>{task.schedule === 'daily' ? windowLabels[task.timeWindow] : scheduleLabels[task.schedule]} · {taskRewardLabel(assignments, task)}</p>
+                        <div className="tag-row">
+                          <span>{benefitLabels[task.benefitType]}</span>
+                        </div>
+                      </div>
+                      <div className="task-actions">
+                        {task.status === 'pending' && (
+                          <button disabled={busyTask === task.id || currentParticipant?.id !== task.participantId} onClick={() => completeTask(task)}>
+                            {currentParticipant?.id === task.participantId ? 'Сделано' : `Ждет ${task.personName}`}
+                          </button>
+                        )}
+                        {task.status === 'completed' && (
+                          <>
+                            {currentParticipant.id !== task.participantId && (
+                              <div className="rating-buttons" aria-label="Оценка выполнения">
+                                {[1, 2, 3, 4, 5].map((rating) => (
+                                  <button disabled={busyTask === task.id} key={rating} onClick={() => confirmTask(task, rating)}>
+                                    {rating}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {currentParticipant.id === task.participantId && <span className="action-hint">Ждет подтверждения</span>}
+                          </>
+                        )}
+                        {task.status === 'confirmed' && <strong>{task.reward.toFixed(0)} ⭐</strong>}
+                      </div>
+                    </article>
+                  ))}
                 </div>
               </div>
 
-              <div className="task-list">
-                {isLoading && <p className="empty">Загружаю семейный план...</p>}
-                {!isLoading && filteredTasks.length === 0 && <p className="empty">Назначьте обязанности, и здесь появится план дня.</p>}
-                {filteredTasks.map((task) => (
-                  <article className="task-row" key={task.id}>
-                    <div className="task-main">
-                      <div className="task-title-line">
-                        <span className={`status ${task.status}`}>{statusLabel(task.status)}</span>
-                        <span className="task-owner">{task.personName}</span>
-                      </div>
-                      <h3>{task.choreTitle}</h3>
-                      <p>{task.schedule === 'daily' ? windowLabels[task.timeWindow] : scheduleLabels[task.schedule]} · {taskRewardLabel(assignments, task)}</p>
-                      <div className="tag-row">
-                        <span>{benefitLabels[task.benefitType]}</span>
-                      </div>
-                    </div>
-                    <div className="task-actions">
-                      {task.status === 'pending' && (
-                        <button disabled={busyTask === task.id || currentParticipant?.id !== task.participantId} onClick={() => completeTask(task)}>
-                          {currentParticipant?.id === task.participantId ? 'Сделано' : `Ждет ${task.personName}`}
-                        </button>
-                      )}
-                      {task.status === 'completed' && (
-                        <>
-                          {currentParticipant && currentParticipant.id !== task.participantId && (
-                            <div className="rating-buttons" aria-label="Оценка выполнения">
-                              {[1, 2, 3, 4, 5].map((rating) => (
-                                <button disabled={busyTask === task.id} key={rating} onClick={() => confirmTask(task, rating)}>
-                                  {rating}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                          {(!currentParticipant || currentParticipant.id === task.participantId) && (
-                            <span className="action-hint">Ждет подтверждения</span>
-                          )}
-                        </>
-                      )}
-                      {task.status === 'confirmed' && <strong>{task.reward.toFixed(0)} ⭐</strong>}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
+              <aside className="side-column">
+                <Leaderboard title="Рейтинг дня" entries={dayLeaderboard} />
 
-            <aside className="side-column">
-              <Leaderboard title="Рейтинг дня" entries={dayLeaderboard} />
-
-              {currentParticipant && (
                 <section className="panel">
                   <h2>На подтверждение</h2>
                   <div className="review-list">
@@ -800,14 +751,11 @@ function App() {
                     ))}
                   </div>
                 </section>
-              )}
 
-              <section className="panel">
-                <h2>Поведение дня</h2>
-                <div className="behavior-list">
-                  {!currentParticipant && <p className="settings-note">Выберите участника сверху, чтобы оценить атмосферу дня.</p>}
-                  {currentParticipant &&
-                    participants
+                <section className="panel">
+                  <h2>Поведение дня</h2>
+                  <div className="behavior-list">
+                    {participants
                       .filter((person) => person.id !== currentParticipant.id)
                       .map((person) => (
                         <div className="behavior-row" key={person.id}>
@@ -821,80 +769,12 @@ function App() {
                           </div>
                         </div>
                       ))}
-                </div>
-              </section>
-
-            </aside>
-          </section>
-        </>
-      )}
-
-      {activeTab === 'week' && (
-        <section className="workspace">
-          <div className="task-panel">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Неделя от {formatDate(weekStart(selectedDate))}</p>
-                <h2>План недели</h2>
-              </div>
-            </div>
-            <div className="week-list">
-              {displayedWeekPlan.length === 0 && <p className="empty">На эту неделю пока нет запланированных задач.</p>}
-              {displayedWeekPlan.map((item) => (
-                <article className="week-plan-row" key={`${item.assignmentId}-${item.schedule}`}>
-                  <div>
-                    <div className="task-title-line">
-                      <span className={`status ${item.doneCount >= item.plannedCount ? 'confirmed' : 'pending'}`}>
-                        {item.doneCount}/{item.plannedCount}
-                      </span>
-                      <span className="task-owner">{item.personName}</span>
-                    </div>
-                    <h3>{item.choreTitle}</h3>
-                    <p>
-                      {scheduleLabels[item.schedule]} · {item.schedule === 'daily' ? windowLabels[item.timeWindow] : 'Когда угодно'}
-                    </p>
-                    <div className="tag-row">
-                      <span>{benefitLabels[item.benefitType]}</span>
-                      {item.confirmedCount > 0 && <span>{item.confirmedCount} подтверждено</span>}
-                    </div>
                   </div>
-                  <strong>{item.doneCount}/{item.plannedCount}</strong>
-                </article>
-              ))}
-            </div>
-          </div>
-          <aside className="side-column">
-            <Leaderboard title="Рейтинг недели" entries={weekLeaderboard} />
-          </aside>
-        </section>
-      )}
-
-      {activeTab === 'month' && (
-        <section className="month-layout">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">{monthLabel(selectedDate)}</p>
-              <h2>Общий месячный рейтинг</h2>
-            </div>
-          </div>
-          <div className="month-grid">
-            {monthLeaderboard.map((entry, index) => (
-              <article className="month-card" key={entry.participantId}>
-                <span className="rank">#{index + 1}</span>
-                <h3>{entry.name}</h3>
-                <strong>{entry.reward.toFixed(0)} ⭐</strong>
-                <div className="month-progress">
-                  <span style={{ width: `${completionPercent(entry)}%` }} />
-                </div>
-                <p>
-                  {entry.tasksDone}/{entry.tasksAssigned} выполнено · {completionPercent(entry)}%
-                </p>
-                <small>Дела {entry.averageRating.toFixed(1)}/5 · Поведение {behaviorLabel(entry)} · {entry.behaviorSmiles} 🙂</small>
-              </article>
-            ))}
-          </div>
-          <Leaderboard title="Детали месяца" entries={monthLeaderboard} />
-        </section>
+                </section>
+              </aside>
+            </section>
+          )}
+        </>
       )}
 
       {activeTab === 'catalog' && (
@@ -1174,9 +1054,9 @@ function Leaderboard({ entries, title }: { entries: LeaderboardEntry[]; title: s
           <li key={entry.participantId}>
             <span className="leaderboard-avatar">{avatarForName(entry.name)}</span>
             <span className="leaderboard-name">{entry.name}</span>
-            <strong>{entry.reward.toFixed(0)} ⭐</strong>
+            <strong>{entry.reward.toFixed(0)} ⭐ · {entry.behaviorSmiles} 🙂</strong>
             <small>
-              {entry.tasksDone}/{entry.tasksAssigned} дел · дела {entry.averageRating.toFixed(1)}/5 · поведение {behaviorLabel(entry)} · {entry.behaviorSmiles} 🙂
+              {entry.tasksDone}/{entry.tasksAssigned} дел · дела {entry.averageRating.toFixed(1)}/5 · поведение {behaviorLabel(entry)}
             </small>
           </li>
         ))}
@@ -1315,26 +1195,12 @@ function taskRewardLabel(assignments: Assignment[], task: Task) {
 
 function formatDate(value: string) {
   const date = new Date(`${value}T00:00:00`)
-  return new Intl.DateTimeFormat('ru-RU', {
+  const formatted = new Intl.DateTimeFormat('ru-RU', {
     day: 'numeric',
-    month: 'long',
-    weekday: 'long',
-  }).format(date)
-}
-
-function monthLabel(value: string) {
-  const date = new Date(`${value}T00:00:00`)
-  return new Intl.DateTimeFormat('ru-RU', {
     month: 'long',
     year: 'numeric',
   }).format(date)
-}
-
-function completionPercent(entry: LeaderboardEntry) {
-  if (entry.tasksAssigned === 0) {
-    return 0
-  }
-  return Math.round((entry.tasksDone / entry.tasksAssigned) * 100)
+  return formatted.replace(/ ([а-яё])/, (_, letter: string) => ` ${letter.toUpperCase()}`)
 }
 
 function behaviorLabel(entry: LeaderboardEntry) {
@@ -1375,13 +1241,6 @@ function avatarForName(name: string, role?: Participant['role']) {
     return '🎒'
   }
   return role === 'child' ? '🙂' : '👤'
-}
-
-function weekStart(value: string) {
-  const date = new Date(`${value}T00:00:00`)
-  const weekday = date.getDay() || 7
-  date.setDate(date.getDate() - (weekday - 1))
-  return date.toISOString().slice(0, 10)
 }
 
 export default App
