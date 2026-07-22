@@ -382,7 +382,7 @@ label {
 }
 
 .workspace {
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) 388px;
   align-items: start;
 }
 
@@ -502,6 +502,13 @@ label {
 .side-column {
   display: grid;
   gap: 16px;
+}
+
+.side-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) 116px;
+  gap: 12px;
+  align-items: stretch;
 }
 
 .segmented {
@@ -1061,6 +1068,10 @@ textarea {
   }
 
   .topbar-actions.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .side-controls {
     grid-template-columns: 1fr;
   }
 

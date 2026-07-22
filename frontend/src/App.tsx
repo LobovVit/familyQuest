@@ -565,67 +565,77 @@ function App() {
     }
   }
 
-  return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className={`topbar-actions ${currentParticipant ? 'compact' : ''}`}>
-          {!currentParticipant ? (
-            <section className="topbar-focus" aria-label="Фокус для Макса">
-              <div>
-                <p className="eyebrow">Фокус для Макса</p>
-                <h2>{maxCompleted}/{maxTasks.length} дел отмечено</h2>
-              </div>
-              <div className="progress-track" aria-label={`Прогресс Макса ${maxProgress}%`}>
-                <span style={{ width: `${maxProgress}%` }} />
-              </div>
-            </section>
-          ) : null}
-          <div className="date-card">
-            <select aria-label="Раздел FamilyQuest" value={activeTab} onChange={(event) => setActiveTab(event.target.value as ActiveTab)}>
-              {availableTabs.map((tab) => (
-                <option key={tab.id} value={tab.id}>
-                  {tab.label}
-                </option>
-              ))}
-            </select>
-            <div className="date-stepper" aria-label="Выбор даты плана">
-              <button aria-label="Предыдущий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(-1)}>
-                ‹
-              </button>
-              <strong>{formatDate(selectedDate)}</strong>
-              <button aria-label="Следующий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(1)}>
-                ›
-              </button>
-            </div>
-          </div>
-          <div className="user-switcher">
-            <button className="current-user-card" onClick={() => setIsUserMenuOpen((isOpen) => !isOpen)}>
-              <span className="big-avatar">{currentParticipant ? participantAvatar(currentParticipant) : '👀'}</span>
-              <span>{currentParticipant ? currentParticipant.name : 'Просмотр'}</span>
+  function renderPlanControls() {
+    return (
+      <>
+        <div className="date-card">
+          <select aria-label="Раздел FamilyQuest" value={activeTab} onChange={(event) => setActiveTab(event.target.value as ActiveTab)}>
+            {availableTabs.map((tab) => (
+              <option key={tab.id} value={tab.id}>
+                {tab.label}
+              </option>
+            ))}
+          </select>
+          <div className="date-stepper" aria-label="Выбор даты плана">
+            <button aria-label="Предыдущий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(-1)}>
+              ‹
             </button>
-            {isUserMenuOpen && (
-              <div className="user-menu">
-                <button className={!currentParticipant ? 'active' : ''} onClick={enterViewMode}>
-                  <span className="menu-avatar">👀</span>
-                  <strong>Все</strong>
-                  <small>Просмотр</small>
-                </button>
-                {participants.map((person) => (
-                  <button
-                    className={currentParticipant?.id === person.id ? 'active' : ''}
-                    key={person.id}
-                    onClick={() => askForParticipant(person)}
-                  >
-                    <span className="menu-avatar">{participantAvatar(person)}</span>
-                    <strong>{person.name}</strong>
-                    <small>{roleLabels[person.role]}</small>
-                  </button>
-                ))}
-              </div>
-            )}
+            <strong>{formatDate(selectedDate)}</strong>
+            <button aria-label="Следующий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(1)}>
+              ›
+            </button>
           </div>
         </div>
-      </header>
+        <div className="user-switcher">
+          <button className="current-user-card" onClick={() => setIsUserMenuOpen((isOpen) => !isOpen)}>
+            <span className="big-avatar">{currentParticipant ? participantAvatar(currentParticipant) : '👀'}</span>
+            <span>{currentParticipant ? currentParticipant.name : 'Просмотр'}</span>
+          </button>
+          {isUserMenuOpen && (
+            <div className="user-menu">
+              <button className={!currentParticipant ? 'active' : ''} onClick={enterViewMode}>
+                <span className="menu-avatar">👀</span>
+                <strong>Все</strong>
+                <small>Просмотр</small>
+              </button>
+              {participants.map((person) => (
+                <button
+                  className={currentParticipant?.id === person.id ? 'active' : ''}
+                  key={person.id}
+                  onClick={() => askForParticipant(person)}
+                >
+                  <span className="menu-avatar">{participantAvatar(person)}</span>
+                  <strong>{person.name}</strong>
+                  <small>{roleLabels[person.role]}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <main className="app-shell">
+      {(!currentParticipant || activeTab !== 'day') && (
+        <header className="topbar">
+          <div className={`topbar-actions ${currentParticipant ? 'compact' : ''}`}>
+            {!currentParticipant ? (
+              <section className="topbar-focus" aria-label="Фокус для Макса">
+                <div>
+                  <p className="eyebrow">Фокус для Макса</p>
+                  <h2>{maxCompleted}/{maxTasks.length} дел отмечено</h2>
+                </div>
+                <div className="progress-track" aria-label={`Прогресс Макса ${maxProgress}%`}>
+                  <span style={{ width: `${maxProgress}%` }} />
+                </div>
+              </section>
+            ) : null}
+            {renderPlanControls()}
+          </div>
+        </header>
+      )}
 
       {error && <p className="notice">{error}</p>}
 
@@ -727,6 +737,7 @@ function App() {
               </div>
 
               <aside className="side-column">
+                <div className="side-controls">{renderPlanControls()}</div>
                 <Leaderboard title="Рейтинг дня" entries={dayLeaderboard} />
 
                 <section className="panel">
