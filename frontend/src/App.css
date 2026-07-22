@@ -129,7 +129,7 @@ label {
 
 .topbar-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 230px 116px;
+  grid-template-columns: minmax(0, 1fr) 260px 116px;
   gap: 12px;
   align-items: stretch;
 }
@@ -171,6 +171,48 @@ label {
   color: var(--text-strong);
   font-size: 15px;
   font-weight: 900;
+}
+
+.date-picker-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  align-items: center;
+}
+
+.date-display-button {
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 900;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  min-height: 42px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.date-native-input {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .user-switcher {

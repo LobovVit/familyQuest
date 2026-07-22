@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
@@ -154,6 +154,7 @@ function App() {
   const [pinPrompt, setPinPrompt] = useState<PinPrompt | null>(null)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isCheckingPin, setIsCheckingPin] = useState(false)
+  const dateInputRef = useRef<HTMLInputElement>(null)
   const [editingChoreId, setEditingChoreId] = useState<number | 'new' | null>(null)
   const [choreDraft, setChoreDraft] = useState<ChoreDraft>(() => emptyChoreDraft())
   const [newParticipant, setNewParticipant] = useState({ name: '', role: 'child' as Participant['role'], pin: '' })
@@ -255,6 +256,14 @@ function App() {
     setCurrentParticipant(null)
     setError('')
     setIsUserMenuOpen(false)
+  }
+
+  function openDatePicker() {
+    if (dateInputRef.current?.showPicker) {
+      dateInputRef.current.showPicker()
+      return
+    }
+    dateInputRef.current?.click()
   }
 
   async function verifyPin(event: React.FormEvent) {
@@ -596,8 +605,22 @@ function App() {
                 </option>
               ))}
             </select>
-            <span className="date-readable">{formatDate(selectedDate)}</span>
-            <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+            <div className="date-picker-row">
+              <button className="date-display-button" type="button" onClick={openDatePicker}>
+                {formatDate(selectedDate)}
+              </button>
+              <button aria-label="Открыть календарь" className="calendar-button" type="button" onClick={openDatePicker}>
+                ◷
+              </button>
+              <input
+                ref={dateInputRef}
+                aria-label="Дата плана"
+                className="date-native-input"
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+              />
+            </div>
           </div>
           <div className="user-switcher">
             <button className="current-user-card" onClick={() => setIsUserMenuOpen((isOpen) => !isOpen)}>
