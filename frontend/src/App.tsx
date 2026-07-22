@@ -149,7 +149,6 @@ function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('day')
   const [busyTask, setBusyTask] = useState<number | null>(null)
   const [busyBehavior, setBusyBehavior] = useState<number | null>(null)
-  const [expandedTaskDescriptions, setExpandedTaskDescriptions] = useState<Record<number, boolean>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [currentParticipant, setCurrentParticipant] = useState<Participant | null>(null)
@@ -709,20 +708,7 @@ function App() {
                         <h3>{task.choreTitle}</h3>
                         {task.choreDescription.trim() && (
                           <div className="task-description">
-                            <p>{expandedTaskDescriptions[task.id] ? task.choreDescription : previewText(task.choreDescription, 30)}</p>
-                            {task.choreDescription.trim().length > 30 && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedTaskDescriptions((expanded) => ({
-                                    ...expanded,
-                                    [task.id]: !expanded[task.id],
-                                  }))
-                                }
-                              >
-                                {expandedTaskDescriptions[task.id] ? 'Скрыть' : 'Показать все'}
-                              </button>
-                            )}
+                            <p>{task.choreDescription}</p>
                           </div>
                         )}
                         <p>{task.schedule === 'daily' ? windowLabels[task.timeWindow] : scheduleLabels[task.schedule]} · {taskRewardLabel(assignments, task)}</p>
@@ -1212,14 +1198,6 @@ function taskRewardLabel(assignments: Assignment[], task: Task) {
     return `${task.reward.toFixed(0)} ⭐ · оценка ${task.averageRating.toFixed(1)}/5`
   }
   return `${taskBaseValue(assignments, task)} ⭐ за выполнение`
-}
-
-function previewText(value: string, limit: number) {
-  const normalized = value.trim().replace(/\s+/g, ' ')
-  if (normalized.length <= limit) {
-    return normalized
-  }
-  return `${normalized.slice(0, limit).trim()}...`
 }
 
 function formatDate(value: string) {
