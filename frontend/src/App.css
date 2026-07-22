@@ -167,52 +167,34 @@ label {
   box-shadow: var(--shadow);
 }
 
-.date-readable {
-  color: var(--text-strong);
-  font-size: 15px;
-  font-weight: 900;
-}
-
-.date-picker-row {
-  position: relative;
+.date-stepper {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
   gap: 8px;
   align-items: center;
 }
 
-.date-display-button {
-  justify-content: flex-start;
+.date-stepper strong {
   min-width: 0;
-  padding: 0 12px;
-  overflow: hidden;
+  color: var(--text-strong);
   font-size: 16px;
   font-weight: 900;
-  text-align: left;
+  line-height: 42px;
+  text-align: center;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.calendar-button {
+.date-arrow {
   display: grid;
   place-items: center;
   width: 42px;
   min-height: 42px;
   padding: 0;
-  font-size: 22px;
+  font-size: 28px;
+  font-weight: 800;
   line-height: 1;
-}
-
-.date-native-input {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
 }
 
 .user-switcher {

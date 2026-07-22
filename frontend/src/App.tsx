@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
@@ -154,7 +154,6 @@ function App() {
   const [pinPrompt, setPinPrompt] = useState<PinPrompt | null>(null)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isCheckingPin, setIsCheckingPin] = useState(false)
-  const dateInputRef = useRef<HTMLInputElement>(null)
   const [editingChoreId, setEditingChoreId] = useState<number | 'new' | null>(null)
   const [choreDraft, setChoreDraft] = useState<ChoreDraft>(() => emptyChoreDraft())
   const [newParticipant, setNewParticipant] = useState({ name: '', role: 'child' as Participant['role'], pin: '' })
@@ -258,17 +257,14 @@ function App() {
     setIsUserMenuOpen(false)
   }
 
-  function openDatePicker() {
-    if (dateInputRef.current?.showPicker) {
-      dateInputRef.current.showPicker()
-      return
-    }
-    dateInputRef.current?.click()
-  }
-
-  function changeSelectedDate(value: string) {
-    setSelectedDate(value)
-    requestAnimationFrame(() => dateInputRef.current?.blur())
+  function shiftSelectedDate(days: number) {
+    setSelectedDate((currentDate) => {
+      const date = new Date(`${currentDate}T00:00:00`)
+      date.setDate(date.getDate() + days)
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${date.getFullYear()}-${month}-${day}`
+    })
   }
 
   async function verifyPin(event: React.FormEvent) {
@@ -610,21 +606,14 @@ function App() {
                 </option>
               ))}
             </select>
-            <div className="date-picker-row">
-              <button className="date-display-button" type="button" onClick={openDatePicker}>
-                {formatDate(selectedDate)}
+            <div className="date-stepper" aria-label="Выбор даты плана">
+              <button aria-label="Предыдущий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(-1)}>
+                ‹
               </button>
-              <button aria-label="Открыть календарь" className="calendar-button" type="button" onClick={openDatePicker}>
-                ◷
+              <strong>{formatDate(selectedDate)}</strong>
+              <button aria-label="Следующий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(1)}>
+                ›
               </button>
-              <input
-                ref={dateInputRef}
-                aria-label="Дата плана"
-                className="date-native-input"
-                type="date"
-                value={selectedDate}
-                onChange={(event) => changeSelectedDate(event.target.value)}
-              />
             </div>
           </div>
           <div className="user-switcher">
