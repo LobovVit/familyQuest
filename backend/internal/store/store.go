@@ -471,7 +471,7 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 	weekStart, _ := periodBounds("week", dueDate)
 	monthStart, _ := periodBounds("month", dueDate)
 	rows, err := s.pool.Query(ctx, `
-		select t.id, t.assignment_id, a.chore_id, a.participant_id, c.title, p.name, t.due_date::text,
+		select t.id, t.assignment_id, a.chore_id, a.participant_id, c.title, c.description, p.name, t.due_date::text,
 		       c.schedule, c.time_window, c.benefit_type, c.execution_mode, t.status, t.completed_at, t.confirmed_at,
 		       coalesce(avg(conf.rating), 0)::float,
 		       coalesce(round((c.base_value * coalesce(avg(conf.rating), 0) / 5.0)::numeric, 2), 0)::float
@@ -487,7 +487,7 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 		  )
 		  and a.active = true
 		  and c.active = true
-		group by t.id, a.chore_id, a.participant_id, c.title, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode, c.base_value
+		group by t.id, a.chore_id, a.participant_id, c.title, c.description, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode, c.base_value
 		order by
 		  case c.schedule when 'daily' then 1 when 'weekly' then 2 when 'monthly' then 3 else 4 end,
 		  case c.time_window when 'morning' then 1 when 'day' then 2 when 'evening' then 3 else 4 end,
@@ -502,7 +502,7 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 	var tasks []Task
 	for rows.Next() {
 		var t Task
-		if err := rows.Scan(&t.ID, &t.AssignmentID, &t.ChoreID, &t.ParticipantID, &t.ChoreTitle, &t.PersonName, &t.DueDate, &t.Schedule, &t.TimeWindow, &t.BenefitType, &t.ExecutionMode, &t.Status, &t.CompletedAt, &t.ConfirmedAt, &t.AverageRating, &t.Reward); err != nil {
+		if err := rows.Scan(&t.ID, &t.AssignmentID, &t.ChoreID, &t.ParticipantID, &t.ChoreTitle, &t.ChoreDescription, &t.PersonName, &t.DueDate, &t.Schedule, &t.TimeWindow, &t.BenefitType, &t.ExecutionMode, &t.Status, &t.CompletedAt, &t.ConfirmedAt, &t.AverageRating, &t.Reward); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, t)

@@ -386,6 +386,21 @@ label {
   align-items: start;
 }
 
+.workspace > .task-panel {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.workspace > .side-controls {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.workspace > .side-column {
+  grid-column: 2;
+  grid-row: 2;
+}
+
 .view-dashboard {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -432,6 +447,25 @@ label {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.task-description {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.task-description p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.task-description button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .task-owner {
@@ -1020,6 +1054,13 @@ textarea {
   .catalog,
   .max-progress {
     grid-template-columns: 1fr;
+  }
+
+  .workspace > .task-panel,
+  .workspace > .side-controls,
+  .workspace > .side-column {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .topbar-actions {

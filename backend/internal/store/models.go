@@ -40,22 +40,23 @@ type Assignment struct {
 }
 
 type Task struct {
-	ID            int64      `json:"id"`
-	AssignmentID  int64      `json:"assignmentId"`
-	ChoreID       int64      `json:"choreId"`
-	ParticipantID int64      `json:"participantId"`
-	ChoreTitle    string     `json:"choreTitle"`
-	PersonName    string     `json:"personName"`
-	DueDate       string     `json:"dueDate"`
-	Schedule      string     `json:"schedule"`
-	TimeWindow    string     `json:"timeWindow"`
-	BenefitType   string     `json:"benefitType"`
-	ExecutionMode string     `json:"executionMode"`
-	Status        string     `json:"status"`
-	CompletedAt   *time.Time `json:"completedAt,omitempty"`
-	ConfirmedAt   *time.Time `json:"confirmedAt,omitempty"`
-	AverageRating float64    `json:"averageRating"`
-	Reward        float64    `json:"reward"`
+	ID               int64      `json:"id"`
+	AssignmentID     int64      `json:"assignmentId"`
+	ChoreID          int64      `json:"choreId"`
+	ParticipantID    int64      `json:"participantId"`
+	ChoreTitle       string     `json:"choreTitle"`
+	ChoreDescription string     `json:"choreDescription"`
+	PersonName       string     `json:"personName"`
+	DueDate          string     `json:"dueDate"`
+	Schedule         string     `json:"schedule"`
+	TimeWindow       string     `json:"timeWindow"`
+	BenefitType      string     `json:"benefitType"`
+	ExecutionMode    string     `json:"executionMode"`
+	Status           string     `json:"status"`
+	CompletedAt      *time.Time `json:"completedAt,omitempty"`
+	ConfirmedAt      *time.Time `json:"confirmedAt,omitempty"`
+	AverageRating    float64    `json:"averageRating"`
+	Reward           float64    `json:"reward"`
 }
 
 type WeekPlanItem struct {
