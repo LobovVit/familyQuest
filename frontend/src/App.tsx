@@ -745,7 +745,6 @@ function App() {
             </section>
           ) : (
             <section className="workspace">
-              <div className="side-controls">{renderPlanControls()}</div>
               <div className="task-panel">
                 <div className="section-heading">
                   <div>
@@ -802,50 +801,53 @@ function App() {
                 </div>
               </div>
 
-              <aside className="side-column">
-                <Leaderboard title="Рейтинг дня" entries={dayLeaderboard} />
+              <aside className="side-stack">
+                <div className="side-controls">{renderPlanControls()}</div>
+                <div className="side-column">
+                  <Leaderboard title="Рейтинг дня" entries={dayLeaderboard} />
 
-                <section className="panel">
-                  <h2>На подтверждение</h2>
-                  <div className="review-list">
-                    {tasksForReview.length === 0 && <p className="settings-note">Пока нет чужих дел, которые ждут оценки.</p>}
-                    {tasksForReview.map((task) => (
-                      <article className="review-card" key={task.id}>
-                        <div>
-                          <strong>{task.choreTitle}</strong>
-                          <span>{task.personName}</span>
-                        </div>
-                        <div className="rating-buttons" aria-label={`Оценка выполнения ${task.choreTitle}`}>
-                          {[1, 2, 3, 4, 5].map((rating) => (
-                            <button disabled={busyTask === task.id} key={rating} onClick={() => confirmTask(task, rating)}>
-                              {rating}
-                            </button>
-                          ))}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="panel">
-                  <h2>Поведение дня</h2>
-                  <div className="behavior-list">
-                    {participants
-                      .filter((person) => person.id !== currentParticipant.id)
-                      .map((person) => (
-                        <div className="behavior-row" key={person.id}>
-                          <span>{person.name}</span>
-                          <div className="rating-buttons" aria-label={`Оценка поведения ${person.name}`}>
+                  <section className="panel">
+                    <h2>На подтверждение</h2>
+                    <div className="review-list">
+                      {tasksForReview.length === 0 && <p className="settings-note">Пока нет чужих дел, которые ждут оценки.</p>}
+                      {tasksForReview.map((task) => (
+                        <article className="review-card" key={task.id}>
+                          <div>
+                            <strong>{task.choreTitle}</strong>
+                            <span>{task.personName}</span>
+                          </div>
+                          <div className="rating-buttons" aria-label={`Оценка выполнения ${task.choreTitle}`}>
                             {[1, 2, 3, 4, 5].map((rating) => (
-                              <button disabled={busyBehavior === person.id} key={rating} onClick={() => rateBehavior(person, rating)}>
-                                {rating} 🙂
+                              <button disabled={busyTask === task.id} key={rating} onClick={() => confirmTask(task, rating)}>
+                                {rating}
                               </button>
                             ))}
                           </div>
-                        </div>
+                        </article>
                       ))}
-                  </div>
-                </section>
+                    </div>
+                  </section>
+
+                  <section className="panel">
+                    <h2>Поведение дня</h2>
+                    <div className="behavior-list">
+                      {participants
+                        .filter((person) => person.id !== currentParticipant.id)
+                        .map((person) => (
+                          <div className="behavior-row" key={person.id}>
+                            <span>{person.name}</span>
+                            <div className="rating-buttons" aria-label={`Оценка поведения ${person.name}`}>
+                              {[1, 2, 3, 4, 5].map((rating) => (
+                                <button disabled={busyBehavior === person.id} key={rating} onClick={() => rateBehavior(person, rating)}>
+                                  {rating} 🙂
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </section>
+                </div>
               </aside>
             </section>
           )}

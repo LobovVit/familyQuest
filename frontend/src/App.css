@@ -388,17 +388,11 @@ label {
 
 .workspace > .task-panel {
   grid-column: 1;
-  grid-row: 1 / span 2;
 }
 
-.workspace > .side-controls {
+.workspace > .side-stack {
   grid-column: 2;
-  grid-row: 1;
-}
-
-.workspace > .side-column {
-  grid-column: 2;
-  grid-row: 2;
+  align-self: start;
 }
 
 .view-dashboard {
@@ -525,6 +519,11 @@ label {
 }
 
 .side-column {
+  display: grid;
+  gap: 16px;
+}
+
+.side-stack {
   display: grid;
   gap: 16px;
 }
@@ -1088,10 +1087,25 @@ textarea {
   }
 
   .workspace > .task-panel,
-  .workspace > .side-controls,
-  .workspace > .side-column {
+  .workspace > .side-stack {
     grid-column: auto;
     grid-row: auto;
+  }
+
+  .workspace > .side-stack {
+    display: contents;
+  }
+
+  .workspace > .side-stack > .side-controls {
+    order: 1;
+  }
+
+  .workspace > .task-panel {
+    order: 2;
+  }
+
+  .workspace > .side-stack > .side-column {
+    order: 3;
   }
 
   .topbar-actions {
