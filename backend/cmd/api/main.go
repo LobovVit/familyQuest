@@ -35,18 +35,31 @@ func main() {
 		log.Fatalf("check seed state: %v", err)
 	}
 	seededFromBackup := false
-	if !hasData {
-		seedPath := store.ResolveSeedPath(cfg.SeedFile)
-		imported, err := db.SeedFromBackupFile(ctx, seedPath)
-		if err != nil {
-			log.Fatalf("seed database from %s: %v", seedPath, err)
-		}
-		if imported {
-			seededFromBackup = true
-			log.Printf("seeded database from %s", seedPath)
-		}
+	seedPath := store.ResolveSeedPath(cfg.SeedFile)
+	_, seedStatErr := os.Stat(seedPath)
+	seedFileExists := seedStatErr == nil
+	if seedStatErr != nil && !os.IsNotExist(seedStatErr) {
+		log.Fatalf("check seed file %s: %v", seedPath, seedStatErr)
 	}
-	if !seededFromBackup {
+	if !hasData {
+		if seedFileExists {
+			imported, err := db.SeedFromBackupFile(ctx, seedPath)
+			if err != nil {
+				log.Fatalf("seed database from %s: %v", seedPath, err)
+			}
+			if imported {
+				seededFromBackup = true
+				log.Printf("seeded database from %s", seedPath)
+			}
+		}
+		if !seededFromBackup {
+			if err := db.Seed(ctx); err != nil {
+				log.Fatalf("seed default data: %v", err)
+			}
+		}
+	} else if seedFileExists {
+		log.Printf("seed file %s found; keeping existing database data", seedPath)
+	} else {
 		if err := db.Seed(ctx); err != nil {
 			log.Fatalf("seed default data: %v", err)
 		}
