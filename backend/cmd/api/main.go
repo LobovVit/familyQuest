@@ -30,8 +30,26 @@ func main() {
 		log.Fatalf("migrate database: %v", err)
 	}
 
-	if err := db.Seed(ctx); err != nil {
-		log.Fatalf("seed database: %v", err)
+	hasData, err := db.HasAnyData(ctx)
+	if err != nil {
+		log.Fatalf("check seed state: %v", err)
+	}
+	seededFromBackup := false
+	if !hasData {
+		seedPath := store.ResolveSeedPath(cfg.SeedFile)
+		imported, err := db.SeedFromBackupFile(ctx, seedPath)
+		if err != nil {
+			log.Fatalf("seed database from %s: %v", seedPath, err)
+		}
+		if imported {
+			seededFromBackup = true
+			log.Printf("seeded database from %s", seedPath)
+		}
+	}
+	if !seededFromBackup {
+		if err := db.Seed(ctx); err != nil {
+			log.Fatalf("seed default data: %v", err)
+		}
 	}
 
 	server := &http.Server{

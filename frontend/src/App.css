@@ -987,6 +987,46 @@ label {
   font-size: 13px;
 }
 
+.backup-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.backup-panel p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.backup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.backup-actions label {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-strong);
+  background: var(--card);
+  cursor: pointer;
+}
+
+.backup-actions label:hover {
+  border-color: var(--accent);
+}
+
+.backup-actions label.disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.backup-actions input {
+  display: none;
+}
+
 .settings-note {
   margin-top: 10px;
   color: var(--muted);

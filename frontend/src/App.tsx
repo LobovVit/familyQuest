@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ChangeEvent, type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
@@ -149,6 +149,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('day')
   const [busyTask, setBusyTask] = useState<number | null>(null)
   const [busyBehavior, setBusyBehavior] = useState<number | null>(null)
+  const [isBackupBusy, setIsBackupBusy] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [currentParticipant, setCurrentParticipant] = useState<Participant | null>(null)
@@ -566,6 +567,64 @@ function App() {
     }
   }
 
+  async function exportBackup() {
+    if (!requireCurrentParticipant()) {
+      return
+    }
+    setIsBackupBusy(true)
+    setError('')
+    try {
+      const response = await fetch(`${API_URL}/api/backup`)
+      if (!response.ok) {
+        throw new Error('Не удалось выгрузить данные')
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `familyquest-backup-${selectedDate}.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (backupError) {
+      setError(backupError instanceof Error ? backupError.message : 'Не удалось выгрузить данные')
+    } finally {
+      setIsBackupBusy(false)
+    }
+  }
+
+  async function importBackup(event: ChangeEvent<HTMLInputElement>) {
+    if (!requireCurrentParticipant()) {
+      event.target.value = ''
+      return
+    }
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) {
+      return
+    }
+    const confirmed = window.confirm('Загрузка файла полностью заменит текущих пользователей, обязанности, задачи, рейтинги и историю выполнения. Продолжить?')
+    if (!confirmed) {
+      return
+    }
+    setIsBackupBusy(true)
+    setError('')
+    try {
+      const text = await file.text()
+      await api('/api/backup', {
+        method: 'POST',
+        body: text,
+      })
+      enterViewMode()
+      await loadData()
+    } catch (backupError) {
+      setError(backupError instanceof Error ? backupError.message : 'Не удалось загрузить данные из файла')
+    } finally {
+      setIsBackupBusy(false)
+    }
+  }
+
   function renderPlanControls() {
     return (
       <>
@@ -941,6 +1000,23 @@ function App() {
               </div>
               <button type="submit">Добавить пользователя</button>
             </form>
+          </section>
+
+          <section className="panel backup-panel">
+            <div>
+              <h2>Данные системы</h2>
+              <p>Полная выгрузка пользователей, обязанностей, задач, рейтингов, наград, PIN-кодов и истории выполнения.</p>
+            </div>
+            <div className="backup-actions">
+              <button disabled={isBackupBusy} type="button" onClick={exportBackup}>
+                Скачать файл
+              </button>
+              <label className={isBackupBusy ? 'disabled' : ''}>
+                Загрузить файл
+                <input accept="application/json,.json" disabled={isBackupBusy} type="file" onChange={importBackup} />
+              </label>
+            </div>
+            <p className="settings-note">Для первичного запуска положите этот файл как backend/seed/familyquest-backup.json перед docker-compose up.</p>
           </section>
 
           <section className="panel rewards-panel">

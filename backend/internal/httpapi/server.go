@@ -60,6 +60,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/rewards", s.listRewards)
 	s.mux.HandleFunc("POST /api/rewards", s.createReward)
 	s.mux.HandleFunc("DELETE /api/rewards/", s.deleteReward)
+	s.mux.HandleFunc("GET /api/backup", s.exportBackup)
+	s.mux.HandleFunc("POST /api/backup", s.importBackup)
 }
 
 func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +289,32 @@ func (s *Server) deleteReward(w http.ResponseWriter, r *http.Request) {
 	}
 	err := s.store.DeleteReward(r.Context(), id)
 	respond(w, map[string]string{"status": "deleted"}, err)
+}
+
+func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
+	backup, err := s.store.ExportBackup(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="familyquest-backup.json"`)
+	writeJSON(w, http.StatusOK, backup)
+}
+
+func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
+	defer r.Body.Close()
+
+	var backup store.BackupData
+	if err := json.NewDecoder(r.Body).Decode(&backup); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid backup JSON")
+		return
+	}
+	if err := s.store.ImportBackup(r.Context(), backup); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	respond(w, map[string]string{"status": "imported"}, nil)
 }
 
 func parseTaskAction(path string) (int64, string, bool) {

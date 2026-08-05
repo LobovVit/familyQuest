@@ -6,6 +6,7 @@ type Config struct {
 	DatabaseURL string
 	HTTPAddr    string
 	CORSOrigin  string
+	SeedFile    string
 }
 
 func Load() Config {
@@ -13,6 +14,7 @@ func Load() Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://familyquest:familyquest@localhost:5433/familyquest?sslmode=disable"),
 		HTTPAddr:    getEnv("HTTP_ADDR", ":8081"),
 		CORSOrigin:  getEnv("CORS_ORIGIN", "*"),
+		SeedFile:    getEnv("FAMILYQUEST_SEED_FILE", ""),
 	}
 }
 

@@ -14,6 +14,7 @@ WORKDIR /app
 
 COPY --from=build /bin/familyquest-api /usr/local/bin/familyquest-api
 COPY migrations ./migrations
+COPY seed ./seed
 
 EXPOSE 8081
 
