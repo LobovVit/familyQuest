@@ -560,6 +560,13 @@ label {
   padding: 0;
 }
 
+.rating-buttons button.selected {
+  color: var(--card);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
 .task-actions .rating-buttons {
   width: min(240px, 100%);
 }

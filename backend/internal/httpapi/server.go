@@ -56,6 +56,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/week-plan", s.weekPlan)
 	s.mux.HandleFunc("POST /api/tasks/", s.taskAction)
 	s.mux.HandleFunc("GET /api/leaderboard", s.leaderboard)
+	s.mux.HandleFunc("GET /api/behavior-ratings", s.listBehaviorRatings)
 	s.mux.HandleFunc("POST /api/behavior-ratings", s.rateBehavior)
 	s.mux.HandleFunc("GET /api/rewards", s.listRewards)
 	s.mux.HandleFunc("POST /api/rewards", s.createReward)
@@ -260,6 +261,12 @@ func (s *Server) rateBehavior(w http.ResponseWriter, r *http.Request) {
 	date := parseDate(request.Date)
 	behavior, err := s.store.RateBehavior(r.Context(), date, request.RaterParticipantID, request.TargetParticipantID, request.Rating, request.Comment)
 	respondCreated(w, behavior, err)
+}
+
+func (s *Server) listBehaviorRatings(w http.ResponseWriter, r *http.Request) {
+	date := parseDate(r.URL.Query().Get("date"))
+	ratings, err := s.store.ListBehaviorRatings(r.Context(), date)
+	respond(w, ratings, err)
 }
 
 func (s *Server) listRewards(w http.ResponseWriter, r *http.Request) {

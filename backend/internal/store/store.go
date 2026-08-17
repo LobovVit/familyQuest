@@ -596,6 +596,29 @@ func (s *Store) RateBehavior(ctx context.Context, ratedDate time.Time, raterID, 
 	return behavior, err
 }
 
+func (s *Store) ListBehaviorRatings(ctx context.Context, ratedDate time.Time) ([]BehaviorRating, error) {
+	rows, err := s.pool.Query(ctx, `
+		select id, rated_date::text, rater_participant_id, target_participant_id, rating, comment, created_at
+		from behavior_ratings
+		where rated_date = $1::date
+		order by id
+	`, ratedDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ratings := make([]BehaviorRating, 0)
+	for rows.Next() {
+		var rating BehaviorRating
+		if err := rows.Scan(&rating.ID, &rating.RatedDate, &rating.RaterParticipantID, &rating.TargetParticipantID, &rating.Rating, &rating.Comment, &rating.CreatedAt); err != nil {
+			return nil, err
+		}
+		ratings = append(ratings, rating)
+	}
+	return ratings, rows.Err()
+}
+
 func (s *Store) GetTask(ctx context.Context, taskID int64, dueDate time.Time) (Task, error) {
 	tasks, err := s.ListTasks(ctx, dueDate)
 	if err != nil {

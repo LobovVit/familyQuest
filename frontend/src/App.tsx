@@ -65,6 +65,14 @@ type LeaderboardEntry = {
   behaviorSmiles: number
 }
 
+type BehaviorRating = {
+  id: number
+  ratedDate: string
+  raterParticipantId: number
+  targetParticipantId: number
+  rating: number
+}
+
 type PinPrompt = {
   participant: Participant
   pin: string
@@ -146,6 +154,7 @@ function App() {
   const [dayLeaderboard, setDayLeaderboard] = useState<LeaderboardEntry[]>([])
   const [weekLeaderboard, setWeekLeaderboard] = useState<LeaderboardEntry[]>([])
   const [monthLeaderboard, setMonthLeaderboard] = useState<LeaderboardEntry[]>([])
+  const [behaviorRatings, setBehaviorRatings] = useState<BehaviorRating[]>([])
   const [activeTab, setActiveTab] = useState<ActiveTab>('day')
   const [busyTask, setBusyTask] = useState<number | null>(null)
   const [busyBehavior, setBusyBehavior] = useState<number | null>(null)
@@ -173,7 +182,7 @@ function App() {
   const loadData = useCallback(async () => {
     setError('')
     try {
-      const [participantsData, choresData, assignmentsData, rewardsData, tasksData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData] =
+      const [participantsData, choresData, assignmentsData, rewardsData, tasksData, dayLeaderboardData, weekLeaderboardData, monthLeaderboardData, behaviorRatingsData] =
         await Promise.all([
           api<Participant[]>('/api/participants'),
           api<Chore[]>('/api/chores'),
@@ -183,6 +192,7 @@ function App() {
           api<LeaderboardEntry[]>(`/api/leaderboard?period=day&date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=week&date=${selectedDate}`),
           api<LeaderboardEntry[]>(`/api/leaderboard?period=month&date=${selectedDate}`),
+          api<BehaviorRating[]>(`/api/behavior-ratings?date=${selectedDate}`),
         ])
 
       setParticipants(participantsData)
@@ -193,6 +203,7 @@ function App() {
       setDayLeaderboard(dayLeaderboardData)
       setWeekLeaderboard(weekLeaderboardData)
       setMonthLeaderboard(monthLeaderboardData)
+      setBehaviorRatings(behaviorRatingsData)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить данные')
     } finally {
@@ -433,7 +444,7 @@ function App() {
     setBusyBehavior(target.id)
     setError('')
     try {
-      await api('/api/behavior-ratings', {
+      const savedRating = await api<BehaviorRating>('/api/behavior-ratings', {
         method: 'POST',
         body: JSON.stringify({
           date: selectedDate,
@@ -443,6 +454,10 @@ function App() {
           comment: '',
         }),
       })
+      setBehaviorRatings((ratings) => [
+        ...ratings.filter((item) => item.raterParticipantId !== rater.id || item.targetParticipantId !== target.id),
+        savedRating,
+      ])
       await loadData()
     } catch (behaviorError) {
       setError(behaviorError instanceof Error ? behaviorError.message : 'Не удалось сохранить оценку поведения')
@@ -833,18 +848,27 @@ function App() {
                     <div className="behavior-list">
                       {participants
                         .filter((person) => person.id !== currentParticipant.id)
-                        .map((person) => (
-                          <div className="behavior-row" key={person.id}>
+                        .map((person) => {
+                          const selectedRating = behaviorRatings.find(
+                            (item) => item.raterParticipantId === currentParticipant.id && item.targetParticipantId === person.id,
+                          )?.rating
+                          return <div className="behavior-row" key={person.id}>
                             <span>{person.name}</span>
                             <div className="rating-buttons" aria-label={`Оценка поведения ${person.name}`}>
                               {[1, 2, 3, 4, 5].map((rating) => (
-                                <button disabled={busyBehavior === person.id} key={rating} onClick={() => rateBehavior(person, rating)}>
+                                <button
+                                  aria-pressed={selectedRating === rating}
+                                  className={selectedRating === rating ? 'selected' : ''}
+                                  disabled={busyBehavior === person.id}
+                                  key={rating}
+                                  onClick={() => rateBehavior(person, rating)}
+                                >
                                   {rating} 🙂
                                 </button>
                               ))}
                             </div>
                           </div>
-                        ))}
+                        })}
                     </div>
                   </section>
                 </div>
