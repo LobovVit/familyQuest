@@ -50,13 +50,12 @@ Copy `.env.example` to `.env`; `.env` is ignored by Git. Important variables:
 | `CORS_ORIGIN` | Exact browser origin allowed in local development |
 | `PUBLIC_HOST` | Production DNS host, without scheme |
 | `TRAEFIK_NETWORK` | External Traefik Docker network |
-| `TRAEFIK_CERT_RESOLVER` | Traefik ACME resolver name |
 
 Generate secrets with your platform's secret manager or a cryptographically secure generator. Do not commit `.env`, paste secrets into Compose files, or reuse the database password as the session secret.
 
 ## Production deployment
 
-Production does not publish PostgreSQL or API ports and does not load the development seed. It requires an existing Traefik network and exposes only HTTPS, with HTTP redirected to HTTPS.
+Production does not publish PostgreSQL or API ports and does not load the development seed. It requires an existing Traefik network. Traefik serves the application over its internal HTTP entrypoint; the public reverse proxy terminates TLS and forwards the original `Host` header.
 
 ```bash
 cp .env.example .env

@@ -66,13 +66,6 @@ services:
       traefik.docker.network: ${TRAEFIK_NETWORK:-homelab}
       traefik.http.routers.familyquest-http.rule: Host(`${PUBLIC_HOST:?PUBLIC_HOST is required}`)
       traefik.http.routers.familyquest-http.entrypoints: web
-      traefik.http.routers.familyquest-http.middlewares: familyquest-https
-      traefik.http.middlewares.familyquest-https.redirectscheme.scheme: https
-      traefik.http.middlewares.familyquest-https.redirectscheme.permanent: "true"
-      traefik.http.routers.familyquest.rule: Host(`${PUBLIC_HOST:?PUBLIC_HOST is required}`)
-      traefik.http.routers.familyquest.entrypoints: websecure
-      traefik.http.routers.familyquest.tls: "true"
-      traefik.http.routers.familyquest.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-letsencrypt}
       traefik.http.services.familyquest.loadbalancer.server.port: "8080"
 
 volumes:
