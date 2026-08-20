@@ -6,7 +6,7 @@ BRANCH="${BRANCH:-main}"
 PROJECT="${PROJECT:-familyquest}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 HEALTH_HOST="${HEALTH_HOST:-lobov.family}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1}"
+HEALTH_URL="${HEALTH_URL:-https://${HEALTH_HOST}/api/health}"
 
 cd "$APP_DIR"
 
@@ -23,12 +23,16 @@ git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
 
 echo "==> Building and restarting Docker Compose project: $PROJECT"
+docker compose -p "$PROJECT" -f "$COMPOSE_FILE" config --quiet
 docker compose -p "$PROJECT" -f "$COMPOSE_FILE" up --build -d --remove-orphans
 
 echo "==> Containers"
 docker compose -p "$PROJECT" -f "$COMPOSE_FILE" ps
 
-echo "==> Checking Traefik route: Host: $HEALTH_HOST -> $HEALTH_URL"
-curl -fsSI -H "Host: $HEALTH_HOST" "$HEALTH_URL" >/dev/null
+echo "==> Waiting for services to become healthy"
+docker compose -p "$PROJECT" -f "$COMPOSE_FILE" up -d --wait --wait-timeout "${WAIT_TIMEOUT:-120}"
+
+echo "==> Checking public HTTPS endpoint: $HEALTH_URL"
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$HEALTH_URL" >/dev/null
 
 echo "==> Done"

@@ -12,6 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/lobov/familyquest/backend/internal/domain"
 )
 
 type Store struct {
@@ -34,7 +37,12 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 func (s *Store) Migrate(ctx context.Context) error {
+	if _, err := s.pool.Exec(ctx, `create table if not exists schema_migrations (version text primary key, applied_at timestamptz not null default now())`); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir("migrations")
 	if err != nil {
 		if entries, err = os.ReadDir(filepath.Join("backend", "migrations")); err != nil {
@@ -47,6 +55,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
+		var applied bool
+		if err := s.pool.QueryRow(ctx, `select exists(select 1 from schema_migrations where version=$1)`, entry.Name()).Scan(&applied); err != nil {
+			return err
+		}
+		if applied {
+			continue
+		}
 		path := filepath.Join("migrations", entry.Name())
 		if _, err := os.Stat(path); err != nil {
 			path = filepath.Join("backend", "migrations", entry.Name())
@@ -55,8 +70,20 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.pool.Exec(ctx, string(sql)); err != nil {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, string(sql)); err != nil {
+			_ = tx.Rollback(ctx)
 			return fmt.Errorf("%s: %w", entry.Name(), err)
+		}
+		if _, err := tx.Exec(ctx, `insert into schema_migrations(version) values($1)`, entry.Name()); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -80,6 +107,15 @@ func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
 	return participants, rows.Err()
 }
 
+func (s *Store) GetParticipant(ctx context.Context, id int64) (Participant, error) {
+	var p Participant
+	err := s.pool.QueryRow(ctx, `select id,name,role,active,created_at from participants where id=$1 and active=true`, id).Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p, domain.ErrUnauthorized
+	}
+	return p, err
+}
+
 func (s *Store) CreateParticipant(ctx context.Context, participant Participant, pin string) (Participant, error) {
 	if participant.Role == "" {
 		participant.Role = "child"
@@ -87,17 +123,26 @@ func (s *Store) CreateParticipant(ctx context.Context, participant Participant, 
 	if pin == "" {
 		pin = "000000"
 	}
-	err := s.pool.QueryRow(ctx, `
-		insert into participants (name, role, pin_code, active)
-		values ($1, $2, $3, true)
-		on conflict (name) do update set role = excluded.role, pin_code = excluded.pin_code, active = true
+	hash, err := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
+	if err != nil {
+		return participant, err
+	}
+	err = s.pool.QueryRow(ctx, `
+		insert into participants (name, role, pin_code, pin_hash, active)
+		values ($1, $2, null, $3, true)
+		on conflict (name) do update set role = excluded.role, pin_code = null, pin_hash = excluded.pin_hash, active = true
 		returning id, name, role, active, created_at
-	`, participant.Name, participant.Role, pin).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
+	`, participant.Name, participant.Role, string(hash)).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
 	return participant, err
 }
 
 func (s *Store) DeleteParticipant(ctx context.Context, participantID int64) error {
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `
 		update participants
 		set active = false
 		where id = $1
@@ -108,21 +153,27 @@ func (s *Store) DeleteParticipant(ctx context.Context, participantID int64) erro
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	if _, err := s.pool.Exec(ctx, `update assignments set active = false where participant_id = $1`, participantID); err != nil {
+	if _, err := tx.Exec(ctx, `update assignments set active = false where participant_id = $1`, participantID); err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `update reward_participants set active = false where participant_id = $1`, participantID)
-	return err
+	if _, err = tx.Exec(ctx, `update reward_participants set active = false where participant_id = $1`, participantID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) UpdateParticipantPIN(ctx context.Context, participantID int64, pin string) (Participant, error) {
 	var participant Participant
-	err := s.pool.QueryRow(ctx, `
+	hash, err := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
+	if err != nil {
+		return participant, err
+	}
+	err = s.pool.QueryRow(ctx, `
 		update participants
-		set pin_code = $2
+		set pin_code = null, pin_hash = $2
 		where id = $1 and active = true
 		returning id, name, role, active, created_at
-	`, participantID, pin).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
+	`, participantID, string(hash)).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Participant{}, ErrNotFound
 	}
@@ -131,18 +182,42 @@ func (s *Store) UpdateParticipantPIN(ctx context.Context, participantID int64, p
 
 func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, pin string) (Participant, error) {
 	var participant Participant
+	var legacy, hash *string
 	err := s.pool.QueryRow(ctx, `
-		select id, name, role, active, created_at
+		select id, name, role, active, created_at, pin_code, coalesce(pin_hash, '')
 		from participants
-		where id = $1 and pin_code = $2 and active = true
-	`, participantID, pin).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
+		where id = $1 and active = true
+	`, participantID).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt, &legacy, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Participant{}, ErrInvalidPIN
 	}
 	if err != nil {
 		return Participant{}, err
 	}
+	valid := hash != nil && bcrypt.CompareHashAndPassword([]byte(*hash), []byte(pin)) == nil
+	if !valid && legacy != nil && *legacy == pin {
+		newHash, hashErr := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
+		if hashErr != nil {
+			return Participant{}, hashErr
+		}
+		if _, hashErr = s.pool.Exec(ctx, `update participants set pin_hash=$2, pin_code=null where id=$1`, participantID, string(newHash)); hashErr != nil {
+			return Participant{}, hashErr
+		}
+		valid = true
+	}
+	if !valid {
+		return Participant{}, domain.ErrInvalidPIN
+	}
 	return participant, nil
+}
+
+func (s *Store) TaskOwner(ctx context.Context, taskID int64) (int64, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx, `select a.participant_id from tasks t join assignments a on a.id=t.assignment_id where t.id=$1`, taskID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, domain.ErrNotFound
+	}
+	return id, err
 }
 
 func (s *Store) ListChores(ctx context.Context) ([]Chore, error) {
@@ -783,15 +858,22 @@ func (s *Store) CreateReward(ctx context.Context, reward Reward) (Reward, error)
 }
 
 func (s *Store) DeleteReward(ctx context.Context, rewardID int64) error {
-	tag, err := s.pool.Exec(ctx, `update rewards set active = false where id = $1`, rewardID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `update rewards set active = false where id = $1`, rewardID)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	_, err = s.pool.Exec(ctx, `update reward_participants set active = false where reward_id = $1`, rewardID)
-	return err
+	if _, err = tx.Exec(ctx, `update reward_participants set active = false where reward_id = $1`, rewardID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) loadRewardParticipants(ctx context.Context, rewards []Reward) error {
@@ -871,7 +953,7 @@ func periodBounds(period string, at time.Time) (time.Time, time.Time) {
 }
 
 var (
-	ErrNotFound      = errors.New("not found")
-	ErrInvalidRating = errors.New("rating must be between 1 and 5")
-	ErrInvalidPIN    = errors.New("invalid pin")
+	ErrNotFound      = domain.ErrNotFound
+	ErrInvalidRating = domain.ErrInvalidRating
+	ErrInvalidPIN    = domain.ErrInvalidPIN
 )

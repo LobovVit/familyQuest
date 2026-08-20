@@ -1,0 +1,5 @@
+import type { Participant } from '../../domain/models'
+import { participantAvatar } from '../../domain/avatar'
+import { roleLabels } from '../shared/labels'
+type Props={current:Participant|null;participants:Participant[];open:boolean;onToggle:()=>void;onView:()=>void;onSelect:(p:Participant)=>void}
+export function UserMenu({current,participants,open,onToggle,onView,onSelect}:Props){return <div className="user-switcher"><button className="current-user-card" onClick={onToggle}><span className="big-avatar">{current?participantAvatar(current):'👀'}</span><span>{current?current.name:'Просмотр'}</span></button>{open&&<div className="user-menu"><button className={!current?'active':''} onClick={onView}><span className="menu-avatar">👀</span><strong>Все</strong><small>Просмотр</small></button>{participants.map(person=><button className={current?.id===person.id?'active':''} key={person.id} onClick={()=>onSelect(person)}><span className="menu-avatar">{participantAvatar(person)}</span><strong>{person.name}</strong><small>{roleLabels[person.role]}</small></button>)}</div>}</div>}

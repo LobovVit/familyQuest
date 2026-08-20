@@ -9,103 +9,23 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/lobov/familyquest/backend/internal/application"
+
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
-const BackupVersion = 1
+const BackupVersion = application.BackupVersion
 
-type BackupData struct {
-	Version            int                       `json:"version"`
-	ExportedAt         time.Time                 `json:"exportedAt"`
-	Participants       []BackupParticipant       `json:"participants"`
-	Chores             []BackupChore             `json:"chores"`
-	Assignments        []BackupAssignment        `json:"assignments"`
-	Tasks              []BackupTask              `json:"tasks"`
-	Confirmations      []BackupConfirmation      `json:"confirmations"`
-	BehaviorRatings    []BackupBehaviorRating    `json:"behaviorRatings"`
-	Rewards            []BackupReward            `json:"rewards"`
-	RewardParticipants []BackupRewardParticipant `json:"rewardParticipants"`
-}
-
-type BackupParticipant struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	PINCode   string    `json:"pinCode"`
-	Active    bool      `json:"active"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-type BackupChore struct {
-	ID            int64     `json:"id"`
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	Schedule      string    `json:"schedule"`
-	TimeWindow    string    `json:"timeWindow"`
-	BenefitType   string    `json:"benefitType"`
-	ExecutionMode string    `json:"executionMode"`
-	BaseValue     int       `json:"baseValue"`
-	Active        bool      `json:"active"`
-	CreatedAt     time.Time `json:"createdAt"`
-}
-
-type BackupAssignment struct {
-	ID            int64     `json:"id"`
-	ChoreID       int64     `json:"choreId"`
-	ParticipantID int64     `json:"participantId"`
-	Active        bool      `json:"active"`
-	CreatedAt     time.Time `json:"createdAt"`
-}
-
-type BackupTask struct {
-	ID           int64      `json:"id"`
-	AssignmentID int64      `json:"assignmentId"`
-	DueDate      string     `json:"dueDate"`
-	Status       string     `json:"status"`
-	CompletedBy  *int64     `json:"completedBy,omitempty"`
-	CompletedAt  *time.Time `json:"completedAt,omitempty"`
-	ConfirmedAt  *time.Time `json:"confirmedAt,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt"`
-}
-
-type BackupConfirmation struct {
-	ID            int64     `json:"id"`
-	TaskID        int64     `json:"taskId"`
-	ParticipantID int64     `json:"participantId"`
-	Rating        int       `json:"rating"`
-	Comment       string    `json:"comment"`
-	CreatedAt     time.Time `json:"createdAt"`
-}
-
-type BackupBehaviorRating struct {
-	ID                  int64     `json:"id"`
-	RatedDate           string    `json:"ratedDate"`
-	RaterParticipantID  int64     `json:"raterParticipantId"`
-	TargetParticipantID int64     `json:"targetParticipantId"`
-	Rating              int       `json:"rating"`
-	Comment             string    `json:"comment"`
-	CreatedAt           time.Time `json:"createdAt"`
-}
-
-type BackupReward struct {
-	ID          int64     `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Period      string    `json:"period"`
-	RewardType  string    `json:"rewardType"`
-	StarCost    int       `json:"starCost"`
-	SmileCost   int       `json:"smileCost"`
-	Active      bool      `json:"active"`
-	CreatedAt   time.Time `json:"createdAt"`
-}
-
-type BackupRewardParticipant struct {
-	ID            int64     `json:"id"`
-	RewardID      int64     `json:"rewardId"`
-	ParticipantID int64     `json:"participantId"`
-	Active        bool      `json:"active"`
-	CreatedAt     time.Time `json:"createdAt"`
-}
+type BackupData = application.BackupData
+type BackupParticipant = application.BackupParticipant
+type BackupChore = application.BackupChore
+type BackupAssignment = application.BackupAssignment
+type BackupTask = application.BackupTask
+type BackupConfirmation = application.BackupConfirmation
+type BackupBehaviorRating = application.BackupBehaviorRating
+type BackupReward = application.BackupReward
+type BackupRewardParticipant = application.BackupRewardParticipant
 
 func (s *Store) ExportBackup(ctx context.Context) (BackupData, error) {
 	backup := emptyBackupData()
@@ -140,14 +60,49 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// Credential material is deliberately omitted from exported backups. When a
+	// backup is restored over an existing installation, retain the current
+	// bcrypt hashes. A seed/first restore must explicitly carry legacy PINs so
+	// that we never create a shared, predictable fallback credential.
+	existingHashes := make(map[int64]string)
+	rows, err := tx.Query(ctx, `select id, coalesce(pin_hash, '') from participants`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id int64
+		var hash string
+		if err := rows.Scan(&id, &hash); err != nil {
+			rows.Close()
+			return err
+		}
+		existingHashes[id] = hash
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
 	if _, err := tx.Exec(ctx, `truncate reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
 		return err
 	}
 	for _, item := range backup.Participants {
+		hash := existingHashes[item.ID]
+		if item.PINCode != "" {
+			generated, hashErr := bcrypt.GenerateFromPassword([]byte(item.PINCode), bcrypt.DefaultCost)
+			if hashErr != nil {
+				return hashErr
+			}
+			hash = string(generated)
+		}
+		if hash == "" {
+			return fmt.Errorf("participant %d has no credential; restore over an initialized database or provide a legacy pinCode", item.ID)
+		}
 		if _, err := tx.Exec(ctx, `
-			insert into participants (id, name, role, pin_code, active, created_at)
-			overriding system value values ($1, $2, $3, $4, $5, $6)
-		`, item.ID, item.Name, item.Role, item.PINCode, item.Active, item.CreatedAt); err != nil {
+			insert into participants (id, name, role, pin_code, pin_hash, active, created_at)
+			overriding system value values ($1, $2, $3, null, $4, $5, $6)
+			`, item.ID, item.Name, item.Role, hash, item.Active, item.CreatedAt); err != nil {
 			return err
 		}
 	}
@@ -267,9 +222,9 @@ func (s *Store) HasAnyData(ctx context.Context) (bool, error) {
 }
 
 func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
-	if err := scanRows(ctx, s.pool.Query, `select id, name, role, pin_code, active, created_at from participants order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, s.pool.Query, `select id, name, role, active, created_at from participants order by id`, func(rows pgx.Rows) error {
 		var item BackupParticipant
-		if err := rows.Scan(&item.ID, &item.Name, &item.Role, &item.PINCode, &item.Active, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Role, &item.Active, &item.CreatedAt); err != nil {
 			return err
 		}
 		backup.Participants = append(backup.Participants, item)

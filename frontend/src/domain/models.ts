@@ -1,0 +1,17 @@
+export type ParticipantRole = 'parent' | 'child' | 'school'
+export type Participant = { id: number; name: string; role: ParticipantRole; active: boolean }
+export type Schedule = 'once' | 'daily' | 'weekly' | 'monthly'
+export type TimeWindow = '' | 'morning' | 'day' | 'evening'
+export type BenefitType = 'self' | 'family' | 'care' | 'home'
+export type ExecutionMode = 'assigned' | 'together' | 'adult_child' | 'anyone'
+export type Chore = { id:number; title:string; description:string; schedule:Schedule; timeWindow:TimeWindow; benefitType:BenefitType; executionMode:ExecutionMode; baseValue:number; participantIds:number[]; participantNames:string[] }
+export type ChoreDraft = Omit<Chore, 'id' | 'participantNames'>
+export type Assignment = { id:number; choreId:number; participantId:number; choreTitle:string; personName:string; schedule:Schedule; timeWindow:TimeWindow; benefitType:BenefitType; executionMode:ExecutionMode; baseValue:number }
+export type TaskStatus = 'pending' | 'completed' | 'needs_work' | 'confirmed'
+export type Task = { id:number; assignmentId:number; participantId:number; choreTitle:string; choreDescription:string; personName:string; dueDate:string; schedule:Schedule; timeWindow:TimeWindow; benefitType:BenefitType; executionMode:ExecutionMode; status:TaskStatus; averageRating:number; reward:number }
+export type LeaderboardEntry = { participantId:number; name:string; tasksDone:number; tasksAssigned:number; reward:number; averageRating:number; behaviorRating:number; behaviorCount:number; behaviorSmiles:number }
+export type BehaviorRating = { id:number; ratedDate:string; raterParticipantId:number; targetParticipantId:number; rating:number }
+export type RewardPeriod = 'day' | 'week' | 'month'
+export type RewardType = 'champion' | 'stars' | 'smiles'
+export type Reward = { id:number; title:string; description:string; period:RewardPeriod; rewardType:RewardType; starCost:number; smileCost:number; participantIds:number[]; participantNames:string[] }
+export type LoginResponse = { participant: Participant; token: string }

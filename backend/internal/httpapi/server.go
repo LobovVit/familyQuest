@@ -1,25 +1,28 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/lobov/familyquest/backend/internal/store"
+	"github.com/lobov/familyquest/backend/internal/application"
+	"github.com/lobov/familyquest/backend/internal/domain"
 )
 
 type Server struct {
-	store      *store.Store
+	store      *application.Service
 	corsOrigin string
 	mux        *http.ServeMux
 }
 
-func NewServer(store *store.Store, corsOrigin string) http.Handler {
+func NewServer(service *application.Service, corsOrigin string) http.Handler {
 	server := &Server{
-		store:      store,
+		store:      service,
 		corsOrigin: corsOrigin,
 		mux:        http.NewServeMux(),
 	}
@@ -29,7 +32,7 @@ func NewServer(store *store.Store, corsOrigin string) http.Handler {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -40,29 +43,54 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.store.Ready(r.Context()); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "database unavailable")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	s.mux.HandleFunc("POST /api/session", s.verifySession)
 	s.mux.HandleFunc("GET /api/participants", s.listParticipants)
-	s.mux.HandleFunc("POST /api/participants", s.createParticipant)
-	s.mux.HandleFunc("PUT /api/participants/", s.updateParticipantPIN)
-	s.mux.HandleFunc("DELETE /api/participants/", s.deleteParticipant)
-	s.mux.HandleFunc("GET /api/chores", s.listChores)
-	s.mux.HandleFunc("POST /api/chores", s.createChore)
-	s.mux.HandleFunc("PUT /api/chores/", s.updateChore)
-	s.mux.HandleFunc("GET /api/assignments", s.listAssignments)
-	s.mux.HandleFunc("POST /api/assignments", s.createAssignment)
-	s.mux.HandleFunc("GET /api/tasks", s.listTasks)
-	s.mux.HandleFunc("GET /api/week-plan", s.weekPlan)
-	s.mux.HandleFunc("POST /api/tasks/", s.taskAction)
-	s.mux.HandleFunc("GET /api/leaderboard", s.leaderboard)
-	s.mux.HandleFunc("GET /api/behavior-ratings", s.listBehaviorRatings)
-	s.mux.HandleFunc("POST /api/behavior-ratings", s.rateBehavior)
-	s.mux.HandleFunc("GET /api/rewards", s.listRewards)
-	s.mux.HandleFunc("POST /api/rewards", s.createReward)
-	s.mux.HandleFunc("DELETE /api/rewards/", s.deleteReward)
-	s.mux.HandleFunc("GET /api/backup", s.exportBackup)
-	s.mux.HandleFunc("POST /api/backup", s.importBackup)
+	s.mux.Handle("POST /api/participants", s.authorize(true, s.createParticipant))
+	s.mux.Handle("PUT /api/participants/", s.authorize(true, s.updateParticipantPIN))
+	s.mux.Handle("DELETE /api/participants/", s.authorize(true, s.deleteParticipant))
+	s.mux.Handle("GET /api/chores", s.authorize(false, s.listChores))
+	s.mux.Handle("POST /api/chores", s.authorize(true, s.createChore))
+	s.mux.Handle("PUT /api/chores/", s.authorize(true, s.updateChore))
+	s.mux.Handle("GET /api/assignments", s.authorize(false, s.listAssignments))
+	s.mux.Handle("POST /api/assignments", s.authorize(true, s.createAssignment))
+	s.mux.Handle("GET /api/tasks", s.authorize(false, s.listTasks))
+	s.mux.Handle("GET /api/week-plan", s.authorize(false, s.weekPlan))
+	s.mux.Handle("POST /api/tasks/", s.authorize(false, s.taskAction))
+	s.mux.Handle("GET /api/leaderboard", s.authorize(false, s.leaderboard))
+	s.mux.Handle("GET /api/behavior-ratings", s.authorize(false, s.listBehaviorRatings))
+	s.mux.Handle("POST /api/behavior-ratings", s.authorize(true, s.rateBehavior))
+	s.mux.Handle("GET /api/rewards", s.authorize(false, s.listRewards))
+	s.mux.Handle("POST /api/rewards", s.authorize(true, s.createReward))
+	s.mux.Handle("DELETE /api/rewards/", s.authorize(true, s.deleteReward))
+	s.mux.Handle("GET /api/backup", s.authorize(true, s.exportBackup))
+	s.mux.Handle("POST /api/backup", s.authorize(true, s.importBackup))
+}
+
+type principalKey struct{}
+
+func (s *Server) authorize(parentOnly bool, next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, err := s.store.ParseToken(r.Header.Get("Authorization"))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		if parentOnly && !p.IsParent() {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+	})
+}
+func principal(r *http.Request) domain.Principal {
+	p, _ := r.Context().Value(principalKey{}).(domain.Principal)
+	return p
 }
 
 func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
@@ -78,8 +106,8 @@ func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
 		return
 	}
-	participant, err := s.store.VerifyParticipantPIN(r.Context(), request.ParticipantID, request.PIN)
-	respond(w, participant, err)
+	participant, token, err := s.store.Authenticate(r.Context(), request.ParticipantID, request.PIN)
+	respond(w, map[string]any{"participant": participant, "token": token}, err)
 }
 
 func (s *Server) listParticipants(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +133,7 @@ func (s *Server) createParticipant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
 		return
 	}
-	participant, err := s.store.CreateParticipant(r.Context(), store.Participant{Name: request.Name, Role: request.Role}, request.PIN)
+	participant, err := s.store.CreateParticipant(r.Context(), domain.Participant{Name: request.Name, Role: request.Role}, request.PIN)
 	respondCreated(w, participant, err)
 }
 
@@ -146,7 +174,7 @@ func (s *Server) listChores(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createChore(w http.ResponseWriter, r *http.Request) {
-	var chore store.Chore
+	var chore domain.Chore
 	if err := json.NewDecoder(r.Body).Decode(&chore); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -161,7 +189,7 @@ func (s *Server) updateChore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown chore")
 		return
 	}
-	var chore store.Chore
+	var chore domain.Chore
 	if err := json.NewDecoder(r.Body).Decode(&chore); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -217,7 +245,7 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		task, err := s.store.CompleteTask(r.Context(), id, request.ParticipantID)
+		task, err := s.store.CompleteTask(r.Context(), principal(r), id)
 		respond(w, task, err)
 	case "confirm":
 		var request struct {
@@ -229,7 +257,7 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		task, err := s.store.ConfirmTask(r.Context(), id, request.ParticipantID, request.Rating, request.Comment)
+		task, err := s.store.ConfirmTask(r.Context(), principal(r), id, request.Rating, request.Comment)
 		respond(w, task, err)
 	default:
 		writeError(w, http.StatusNotFound, "unknown task action")
@@ -259,7 +287,7 @@ func (s *Server) rateBehavior(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	date := parseDate(request.Date)
-	behavior, err := s.store.RateBehavior(r.Context(), date, request.RaterParticipantID, request.TargetParticipantID, request.Rating, request.Comment)
+	behavior, err := s.store.RateBehavior(r.Context(), principal(r), date, request.TargetParticipantID, request.Rating, request.Comment)
 	respondCreated(w, behavior, err)
 }
 
@@ -275,7 +303,7 @@ func (s *Server) listRewards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createReward(w http.ResponseWriter, r *http.Request) {
-	var reward store.Reward
+	var reward domain.Reward
 	if err := json.NewDecoder(r.Body).Decode(&reward); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -312,12 +340,12 @@ func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
 	defer r.Body.Close()
 
-	var backup store.BackupData
-	if err := json.NewDecoder(r.Body).Decode(&backup); err != nil {
+	payload, err := io.ReadAll(r.Body)
+	if err != nil || len(payload) == 0 {
 		writeError(w, http.StatusBadRequest, "invalid backup JSON")
 		return
 	}
-	if err := s.store.ImportBackup(r.Context(), backup); err != nil {
+	if err := s.store.ImportBackup(r.Context(), payload); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -374,14 +402,20 @@ func parseDate(value string) time.Time {
 func respond(w http.ResponseWriter, payload any, err error) {
 	if err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, domain.ErrNotFound) {
 			status = http.StatusNotFound
 		}
-		if errors.Is(err, store.ErrInvalidRating) {
+		if errors.Is(err, domain.ErrInvalidRating) {
 			status = http.StatusBadRequest
 		}
-		if errors.Is(err, store.ErrInvalidPIN) {
+		if errors.Is(err, domain.ErrInvalidPIN) {
 			status = http.StatusUnauthorized
+		}
+		if errors.Is(err, domain.ErrInvalidPINFormat) || errors.Is(err, domain.ErrInvalidRole) {
+			status = http.StatusBadRequest
+		}
+		if errors.Is(err, domain.ErrForbidden) {
+			status = http.StatusForbidden
 		}
 		writeError(w, status, err.Error())
 		return
@@ -391,7 +425,17 @@ func respond(w http.ResponseWriter, payload any, err error) {
 
 func respondCreated(w http.ResponseWriter, payload any, err error) {
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		if errors.Is(err, domain.ErrInvalidPINFormat) || errors.Is(err, domain.ErrInvalidRole) || errors.Is(err, domain.ErrInvalidRating) {
+			status = http.StatusBadRequest
+		}
+		if errors.Is(err, domain.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, payload)

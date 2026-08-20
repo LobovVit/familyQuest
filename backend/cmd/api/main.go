@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lobov/familyquest/backend/internal/application"
+	"github.com/lobov/familyquest/backend/internal/auth"
 	"github.com/lobov/familyquest/backend/internal/config"
 	"github.com/lobov/familyquest/backend/internal/httpapi"
 	"github.com/lobov/familyquest/backend/internal/store"
@@ -16,6 +18,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -49,10 +54,18 @@ func main() {
 		log.Printf("database already has data; seed import skipped")
 	}
 
+	tokens, err := auth.New(cfg.SessionSecret, cfg.SessionTTL)
+	if err != nil {
+		log.Fatalf("configure sessions: %v", err)
+	}
+	app := application.New(db, tokens)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(db, cfg.CORSOrigin),
+		Handler:           httpapi.NewServer(app, cfg.CORSOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
