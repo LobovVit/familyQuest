@@ -20,11 +20,25 @@ export function useFamilyQuestData(selectedDate: string, authenticated: boolean)
     catch (error) { setLoadError(error instanceof Error ? error.message : 'Не удалось загрузить участников') }
   }, [])
   const clearProtected = useCallback(() => {
-    setChores([]); setAssignments([]); setRewards([]); setTasks([]); setDayLeaderboard([]); setWeekLeaderboard([]); setMonthLeaderboard([]); setBehaviorRatings([])
+    setChores([]); setAssignments([]); setRewards([]); setTasks([]); setBehaviorRatings([])
   }, [])
+  const loadLeaderboards = useCallback(async () => {
+    const values = await Promise.all([
+      api<LeaderboardEntry[]>(`/api/leaderboard?period=day&date=${selectedDate}`),
+      api<LeaderboardEntry[]>(`/api/leaderboard?period=week&date=${selectedDate}`),
+      api<LeaderboardEntry[]>(`/api/leaderboard?period=month&date=${selectedDate}`),
+    ] as const)
+    setDayLeaderboard(values[0]); setWeekLeaderboard(values[1]); setMonthLeaderboard(values[2])
+  }, [selectedDate])
   const refresh = useCallback(async () => {
-    if (!authenticated) { clearProtected(); setIsLoading(false); return }
     setLoadError('')
+    if (!authenticated) {
+      clearProtected()
+      try { await loadLeaderboards() }
+      catch (error) { setLoadError(error instanceof Error ? error.message : 'Не удалось загрузить рейтинг') }
+      finally { setIsLoading(false) }
+      return
+    }
     try {
       const values = await Promise.all([
         api<Chore[]>('/api/chores'), api<Assignment[]>('/api/assignments'), api<Reward[]>('/api/rewards'), api<Task[]>(`/api/tasks?date=${selectedDate}`),
@@ -37,7 +51,7 @@ export function useFamilyQuestData(selectedDate: string, authenticated: boolean)
       setDayLeaderboard(values[4]); setWeekLeaderboard(values[5]); setMonthLeaderboard(values[6]); setBehaviorRatings(values[7])
     } catch (error) { setLoadError(error instanceof Error ? error.message : 'Не удалось загрузить данные') }
     finally { setIsLoading(false) }
-  }, [authenticated, clearProtected, selectedDate])
+  }, [authenticated, clearProtected, loadLeaderboards, selectedDate])
 
   useEffect(() => { void loadParticipants() }, [loadParticipants])
   useEffect(() => { void refresh() }, [refresh])

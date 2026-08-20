@@ -62,7 +62,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/tasks", s.authorize(false, s.listTasks))
 	s.mux.Handle("GET /api/week-plan", s.authorize(false, s.weekPlan))
 	s.mux.Handle("POST /api/tasks/", s.authorize(false, s.taskAction))
-	s.mux.Handle("GET /api/leaderboard", s.authorize(false, s.leaderboard))
+	s.mux.HandleFunc("GET /api/leaderboard", s.leaderboard)
 	s.mux.Handle("GET /api/behavior-ratings", s.authorize(false, s.listBehaviorRatings))
 	s.mux.Handle("POST /api/behavior-ratings", s.authorize(true, s.rateBehavior))
 	s.mux.Handle("GET /api/rewards", s.authorize(false, s.listRewards))
