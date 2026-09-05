@@ -128,7 +128,7 @@ func (s *Service) ListBehaviorRatings(c context.Context, d time.Time) ([]domain.
 	return s.repo.ListBehaviorRatings(c, d)
 }
 func (s *Service) RateBehavior(c context.Context, p domain.Principal, d time.Time, target int64, r int, comment string) (domain.BehaviorRating, error) {
-	if !p.IsParent() {
+	if p.ParticipantID <= 0 || (!p.IsParent() && p.Role != domain.RoleChild) {
 		return domain.BehaviorRating{}, domain.ErrForbidden
 	}
 	return s.repo.RateBehavior(c, d, p.ParticipantID, target, r, comment)
