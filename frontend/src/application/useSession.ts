@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react'
-import type { LoginResponse, Participant } from '../domain/models'
-import { clearSession, getParticipant, saveSession } from '../infrastructure/session'
+import { useCallback, useSyncExternalStore } from 'react'
+import type { LoginResponse } from '../domain/models'
+import { useRuntime } from './runtime'
 
 export function useSession() {
-  const [participant, setParticipant] = useState<Participant | null>(() => getParticipant())
-  const login = useCallback((session: LoginResponse) => { saveSession(session); setParticipant(session.participant) }, [])
-  const logout = useCallback(() => { clearSession(); setParticipant(null) }, [])
-  return { participant, login, logout }
+ const { session } = useRuntime()
+ const participant = useSyncExternalStore(session.subscribe, session.getParticipant, () => null)
+ const login = useCallback((value: LoginResponse) => session.saveSession(value), [session])
+ const logout = useCallback(() => session.clearSession(), [session])
+ return { participant, login, logout }
 }

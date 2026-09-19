@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +22,7 @@ func testServer(t *testing.T) (http.Handler, *auth.Tokens) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	return NewServer(application.New(nil, tokens), "*"), tokens
+	return NewServer(application.New(&behaviorRepository{role: domain.RoleChild}, tokens), "*"), tokens
 }
 func TestProtectedEndpointRequiresBearer(t *testing.T) {
 	h, _ := testServer(t)
@@ -56,6 +58,7 @@ func TestCORSAllowsAuthorization(t *testing.T) {
 type behaviorRepository struct {
 	application.Repository
 	saved []domain.BehaviorRating
+	role  string
 }
 
 func (r *behaviorRepository) RateBehavior(_ context.Context, date time.Time, rater, target int64, rating int, comment string) (domain.BehaviorRating, error) {
@@ -76,7 +79,7 @@ func TestBehaviorRatingAccessAndAuthor(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, tokens := testServer(t)
-			repo := &behaviorRepository{}
+			repo := &behaviorRepository{role: tc.role}
 			handler := NewServer(application.New(repo, tokens), "*")
 			req := httptest.NewRequest(http.MethodPost, "/api/behavior-ratings", strings.NewReader(`{"date":"2026-09-05","raterParticipantId":999,"targetParticipantId":3,"rating":4}`))
 			if tc.role != "" {
@@ -105,5 +108,27 @@ func TestBehaviorRatingAccessAndAuthor(t *testing.T) {
 				t.Fatalf("incorrect saved rating: %+v", got)
 			}
 		})
+	}
+}
+
+func (r *behaviorRepository) GetParticipant(_ context.Context, id int64) (domain.Participant, error) {
+	return domain.Participant{ID: id, Role: r.role, Active: true}, nil
+}
+
+func TestHTTPValidationAndErrorSanitization(t *testing.T) {
+	for _, fn := range []func(http.ResponseWriter, any, error){respond, respondCreated} {
+		w := httptest.NewRecorder()
+		fn(w, nil, fmt.Errorf("database detail that must stay on the server"))
+		if w.Code != 500 || strings.Contains(w.Body.String(), "database detail") {
+			t.Fatal(w.Body.String())
+		}
+	}
+	if _, err := parseDate("not-a-date"); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatal("invalid date accepted")
+	}
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{} {}`))
+	var value any
+	if err := decodeJSON(r, &value); err == nil {
+		t.Fatal("multiple JSON documents accepted")
 	}
 }

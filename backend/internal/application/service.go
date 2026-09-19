@@ -2,16 +2,18 @@ package application
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
+	"strings"
 	"time"
 
-	"github.com/lobov/familyquest/backend/internal/auth"
 	"github.com/lobov/familyquest/backend/internal/domain"
 )
 
 // Repository is the persistence port consumed by application use cases.
 type Repository interface {
+	FamilyRepository
 	Ping(context.Context) error
+	GetParticipant(context.Context, int64) (domain.Participant, error)
 	ListParticipants(context.Context) ([]domain.Participant, error)
 	CreateParticipant(context.Context, domain.Participant, string) (domain.Participant, error)
 	DeleteParticipant(context.Context, int64) error
@@ -37,13 +39,19 @@ type Repository interface {
 	ImportBackup(context.Context, BackupData) error
 }
 
-type Service struct {
-	repo   Repository
-	tokens *auth.Tokens
+// Tokens is the authentication port consumed by use cases.
+type Tokens interface {
+	Issue(domain.Participant) (string, error)
+	Parse(string) (domain.Principal, error)
 }
 
-func New(repo Repository, tokens *auth.Tokens) *Service { return &Service{repo: repo, tokens: tokens} }
-func (s *Service) Ready(c context.Context) error        { return s.repo.Ping(c) }
+type Service struct {
+	repo   Repository
+	tokens Tokens
+}
+
+func New(repo Repository, tokens Tokens) *Service { return &Service{repo: repo, tokens: tokens} }
+func (s *Service) Ready(c context.Context) error  { return s.repo.Ping(c) }
 func (s *Service) Authenticate(c context.Context, id int64, pin string) (domain.Participant, string, error) {
 	if err := domain.ValidatePIN(pin); err != nil {
 		return domain.Participant{}, "", err
@@ -55,17 +63,28 @@ func (s *Service) Authenticate(c context.Context, id int64, pin string) (domain.
 	t, err := s.tokens.Issue(p)
 	return p, t, err
 }
-func (s *Service) ParseToken(v string) (domain.Principal, error) {
-	t, e := auth.Bearer(v)
-	if e != nil {
-		return domain.Principal{}, e
+func (s *Service) ParseToken(c context.Context, token string) (domain.Principal, error) {
+	p, err := s.tokens.Parse(token)
+	if err != nil {
+		return domain.Principal{}, err
 	}
-	return s.tokens.Parse(t)
+	participant, err := s.repo.GetParticipant(c, p.ParticipantID)
+	if err != nil {
+		return domain.Principal{}, err
+	}
+	if !participant.Active || participant.Role != p.Role || participant.SessionVersion != p.SessionVersion {
+		return domain.Principal{}, domain.ErrUnauthorized
+	}
+	return p, nil
 }
 func (s *Service) ListParticipants(c context.Context) ([]domain.Participant, error) {
 	return s.repo.ListParticipants(c)
 }
-func (s *Service) CreateParticipant(c context.Context, p domain.Participant, pin string) (domain.Participant, error) {
+func (s *Service) CreateParticipant(c context.Context, actor domain.Principal, p domain.Participant, pin string) (domain.Participant, error) {
+	if !actor.IsParent() {
+		return p, domain.ErrForbidden
+	}
+
 	if e := domain.ValidatePIN(pin); e != nil {
 		return p, e
 	}
@@ -75,28 +94,63 @@ func (s *Service) CreateParticipant(c context.Context, p domain.Participant, pin
 	if e := domain.ValidateRole(p.Role); e != nil {
 		return p, e
 	}
+	p.Name = strings.TrimSpace(p.Name)
+	if p.Name == "" {
+		return p, domain.ErrInvalidInput
+	}
 	return s.repo.CreateParticipant(c, p, pin)
 }
-func (s *Service) DeleteParticipant(c context.Context, id int64) error {
+func (s *Service) DeleteParticipant(c context.Context, actor domain.Principal, id int64) error {
+	if !actor.IsParent() {
+		return domain.ErrForbidden
+	}
+
 	return s.repo.DeleteParticipant(c, id)
 }
-func (s *Service) UpdateParticipantPIN(c context.Context, id int64, pin string) (domain.Participant, error) {
+func (s *Service) UpdateParticipantPIN(c context.Context, actor domain.Principal, id int64, pin string) (domain.Participant, error) {
+	if !actor.IsParent() {
+		return domain.Participant{}, domain.ErrForbidden
+	}
+
 	if e := domain.ValidatePIN(pin); e != nil {
 		return domain.Participant{}, e
 	}
 	return s.repo.UpdateParticipantPIN(c, id, pin)
 }
 func (s *Service) ListChores(c context.Context) ([]domain.Chore, error) { return s.repo.ListChores(c) }
-func (s *Service) CreateChore(c context.Context, v domain.Chore) (domain.Chore, error) {
+func (s *Service) CreateChore(c context.Context, actor domain.Principal, v domain.Chore) (domain.Chore, error) {
+	if !actor.IsParent() {
+		return v, domain.ErrForbidden
+	}
+
+	v, err := domain.NormalizeChore(v)
+	if err != nil {
+		return v, err
+	}
 	return s.repo.CreateChore(c, v)
 }
-func (s *Service) UpdateChore(c context.Context, v domain.Chore) (domain.Chore, error) {
+func (s *Service) UpdateChore(c context.Context, actor domain.Principal, v domain.Chore) (domain.Chore, error) {
+	if !actor.IsParent() {
+		return v, domain.ErrForbidden
+	}
+
+	v, err := domain.NormalizeChore(v)
+	if err != nil {
+		return v, err
+	}
 	return s.repo.UpdateChore(c, v)
 }
 func (s *Service) ListAssignments(c context.Context) ([]domain.Assignment, error) {
 	return s.repo.ListAssignments(c)
 }
-func (s *Service) CreateAssignment(c context.Context, a, b int64) (domain.Assignment, error) {
+func (s *Service) CreateAssignment(c context.Context, actor domain.Principal, a, b int64) (domain.Assignment, error) {
+	if !actor.IsParent() {
+		return domain.Assignment{}, domain.ErrForbidden
+	}
+
+	if a <= 0 || b <= 0 {
+		return domain.Assignment{}, domain.ErrInvalidInput
+	}
 	return s.repo.CreateAssignment(c, a, b)
 }
 func (s *Service) ListTasks(c context.Context, d time.Time) ([]domain.Task, error) {
@@ -119,6 +173,16 @@ func (s *Service) ConfirmTask(c context.Context, p domain.Principal, id int64, r
 	if !p.IsParent() {
 		return domain.Task{}, domain.ErrForbidden
 	}
+	if err := domain.ValidateRating(r); err != nil {
+		return domain.Task{}, err
+	}
+	owner, err := s.repo.TaskOwner(c, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if owner == p.ParticipantID {
+		return domain.Task{}, domain.ErrForbidden
+	}
 	return s.repo.ConfirmTask(c, id, p.ParticipantID, r, comment)
 }
 func (s *Service) Leaderboard(c context.Context, p string, d time.Time) ([]domain.LeaderboardEntry, error) {
@@ -131,20 +195,52 @@ func (s *Service) RateBehavior(c context.Context, p domain.Principal, d time.Tim
 	if p.ParticipantID <= 0 || (!p.IsParent() && p.Role != domain.RoleChild) {
 		return domain.BehaviorRating{}, domain.ErrForbidden
 	}
+	if err := domain.ValidateRating(r); err != nil {
+		return domain.BehaviorRating{}, err
+	}
+	if target <= 0 || target == p.ParticipantID {
+		return domain.BehaviorRating{}, domain.ErrInvalidInput
+	}
+	if _, err := s.repo.GetParticipant(c, target); err != nil {
+		if errors.Is(err, domain.ErrUnauthorized) {
+			return domain.BehaviorRating{}, domain.ErrNotFound
+		}
+		return domain.BehaviorRating{}, err
+	}
 	return s.repo.RateBehavior(c, d, p.ParticipantID, target, r, comment)
 }
 func (s *Service) ListRewards(c context.Context) ([]domain.Reward, error) {
 	return s.repo.ListRewards(c)
 }
-func (s *Service) CreateReward(c context.Context, v domain.Reward) (domain.Reward, error) {
+func (s *Service) CreateReward(c context.Context, actor domain.Principal, v domain.Reward) (domain.Reward, error) {
+	if !actor.IsParent() {
+		return v, domain.ErrForbidden
+	}
+
+	v, err := domain.NormalizeReward(v)
+	if err != nil {
+		return v, err
+	}
 	return s.repo.CreateReward(c, v)
 }
-func (s *Service) DeleteReward(c context.Context, id int64) error { return s.repo.DeleteReward(c, id) }
-func (s *Service) ExportBackup(c context.Context) (any, error)    { return s.repo.ExportBackup(c) }
-func (s *Service) ImportBackup(c context.Context, payload []byte) error {
-	var b BackupData
-	if e := json.Unmarshal(payload, &b); e != nil {
-		return e
+func (s *Service) DeleteReward(c context.Context, actor domain.Principal, id int64) error {
+	if !actor.IsParent() {
+		return domain.ErrForbidden
+	}
+	return s.repo.DeleteReward(c, id)
+}
+func (s *Service) ExportBackup(c context.Context, actor domain.Principal) (BackupData, error) {
+	if !actor.IsParent() {
+		return BackupData{}, domain.ErrForbidden
+	}
+	return s.repo.ExportBackup(c)
+}
+func (s *Service) ImportBackup(c context.Context, actor domain.Principal, b BackupData) error {
+	if !actor.IsParent() {
+		return domain.ErrForbidden
+	}
+	if err := b.Validate(); err != nil {
+		return err
 	}
 	return s.repo.ImportBackup(c, b)
 }

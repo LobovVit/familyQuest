@@ -12,11 +12,12 @@ const (
 )
 
 type Principal struct {
-	ParticipantID int64
-	Role          string
+	SessionVersion int64
+	ParticipantID  int64
+	Role           string
 }
 
-func (p Principal) IsParent() bool { return p.Role == RoleParent }
+func (p Principal) IsParent() bool { return p.ParticipantID > 0 && p.Role == RoleParent }
 func ValidatePIN(pin string) error {
 	if len(pin) != 6 {
 		return ErrInvalidPINFormat
@@ -34,9 +35,13 @@ func ValidateRole(role string) error {
 	}
 	return nil
 }
-func CanComplete(p Principal, ownerID int64) bool { return p.ParticipantID == ownerID }
+func CanComplete(p Principal, ownerID int64) bool {
+	return p.ParticipantID > 0 && p.ParticipantID == ownerID
+}
 
 var (
+	ErrInvalidInput     = errors.New("invalid input")
+	ErrConflict         = errors.New("operation conflicts with current state")
 	ErrNotFound         = errors.New("not found")
 	ErrInvalidRating    = errors.New("rating must be between 1 and 5")
 	ErrInvalidPIN       = errors.New("invalid pin")
@@ -47,11 +52,12 @@ var (
 )
 
 type Participant struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	Active    bool      `json:"active"`
-	CreatedAt time.Time `json:"createdAt"`
+	SessionVersion int64     `json:"-"`
+	ID             int64     `json:"id"`
+	Name           string    `json:"name"`
+	Role           string    `json:"role"`
+	Active         bool      `json:"active"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 type Chore struct {
 	ID               int64     `json:"id"`

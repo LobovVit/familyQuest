@@ -1,3 +1,4 @@
+import { FamilyLife } from './family/FamilyLife'
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react'
 import '../App.css'
 import type { Chore, ChoreDraft, ExecutionMode, Participant, Reward, RewardPeriod, RewardType, Task } from '../domain/models'
@@ -5,7 +6,9 @@ import { taskProgress } from '../domain/policies'
 import { useSession } from '../application/useSession'
 import { useFamilyQuestData } from '../application/useFamilyQuestData'
 import { useFamilyQuestActions } from '../application/useFamilyQuestActions'
-import { downloadBackup, restoreBackup } from '../infrastructure/backup'
+import { useRuntime } from '../application/runtime'
+import { localDate } from '../domain/date'
+import { canReviewTask } from '../domain/policies'
 import { Planner } from '../features/planner/Planner'
 import { Catalog } from '../features/catalog/Catalog'
 import { ChoreEditor } from './catalog/ChoreEditor'
@@ -18,16 +21,18 @@ type PinPrompt = {
   pin: string
 }
 
-type ActiveTab = 'day' | 'catalog' | 'users'
+type ActiveTab = 'day' | 'family' | 'catalog' | 'users'
 
 const tabs: Array<{ id: ActiveTab; label: string; adultsOnly?: boolean }> = [
   { id: 'day', label: 'Планер' },
+  { id: 'family', label: 'Семья · привычки и приключения' },
   { id: 'catalog', label: 'Справочник обязанностей', adultsOnly: true },
   { id: 'users', label: 'Настройки пользователей', adultsOnly: true },
 ]
 
 export function FamilyQuestWorkspace() {
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10))
+ const { downloadBackup, restoreBackup } = useRuntime()
+  const [selectedDate, setSelectedDate] = useState(() => localDate(new Date()))
   const [activeTab, setActiveTab] = useState<ActiveTab>('day')
   const [busyTask, setBusyTask] = useState<number | null>(null)
   const [busyBehavior, setBusyBehavior] = useState<number | null>(null)
@@ -51,13 +56,13 @@ export function FamilyQuestWorkspace() {
     participantIds: [] as number[],
   })
 
-  const data = useFamilyQuestData(selectedDate, currentParticipant !== null)
-  const { participants, chores, assignments, rewards, tasks, dayLeaderboard, weekLeaderboard, monthLeaderboard, behaviorRatings, setBehaviorRatings, isLoading } = data
+  const data = useFamilyQuestData(selectedDate, currentParticipant)
+  const { participants, chores, assignments, rewards, tasks, dayLeaderboard, weekLeaderboard, monthLeaderboard, behaviorRatings, isLoading } = data
   const actions = useFamilyQuestActions(data.refresh)
   useEffect(() => { if (data.loadError) setError(data.loadError) }, [data.loadError])
 
   const availableTabs = useMemo(() => {
-    return tabs.filter((tab) => !tab.adultsOnly || currentParticipant?.role === 'parent')
+    return tabs.filter((tab) => (tab.id !== 'family' || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
   }, [currentParticipant])
 
   useEffect(() => {
@@ -73,14 +78,15 @@ export function FamilyQuestWorkspace() {
     return tasks
   }, [currentParticipant, tasks])
 
-  const completedTasks = tasks.filter((task) => task.status !== 'pending').length
-  const overallProgress = taskProgress(tasks)
+  const completedTasks = currentParticipant ? tasks.filter((task) => task.status !== 'pending').length : dayLeaderboard.reduce((sum, entry) => sum + entry.tasksDone, 0)
+  const totalTasks = currentParticipant ? tasks.length : dayLeaderboard.reduce((sum, entry) => sum + entry.tasksAssigned, 0)
+  const overallProgress = currentParticipant ? taskProgress(tasks) : totalTasks > 0 ? Math.min(100, Math.round(completedTasks / totalTasks * 100)) : 0
 
   const tasksForReview = useMemo(() => {
     if (!currentParticipant) {
       return []
     }
-    return tasks.filter((task) => task.status === 'completed' && task.participantId !== currentParticipant.id)
+    return tasks.filter((task) => canReviewTask(currentParticipant, task))
   }, [currentParticipant, tasks])
 
   function askForParticipant(participant: Participant) {
@@ -221,7 +227,7 @@ export function FamilyQuestWorkspace() {
     setBusyTask(task.id)
     setError('')
     try {
-      await actions.completeTask(task, currentParticipant.id)
+      await actions.completeTask(task)
     } catch (completeError) {
       setError(completeError instanceof Error ? completeError.message : 'Не удалось отметить задачу')
     } finally {
@@ -244,7 +250,7 @@ export function FamilyQuestWorkspace() {
     setBusyTask(task.id)
     setError('')
     try {
-      await actions.confirmTask(task, reviewer.id, rating)
+      await actions.confirmTask(task, rating)
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : 'Не удалось поставить оценку')
     } finally {
@@ -267,11 +273,7 @@ export function FamilyQuestWorkspace() {
     setBusyBehavior(target.id)
     setError('')
     try {
-      const savedRating = await actions.rateBehavior(selectedDate, rater.id, target.id, rating)
-      setBehaviorRatings((ratings) => [
-        ...ratings.filter((item) => item.raterParticipantId !== rater.id || item.targetParticipantId !== target.id),
-        savedRating,
-      ])
+      await actions.rateBehavior(selectedDate, target.id, rating)
       await data.refresh()
     } catch (behaviorError) {
       setError(behaviorError instanceof Error ? behaviorError.message : 'Не удалось сохранить оценку поведения')
@@ -409,7 +411,7 @@ export function FamilyQuestWorkspace() {
     if (!file) {
       return
     }
-    const confirmed = window.confirm('Загрузка файла полностью заменит текущих пользователей, обязанности, задачи, рейтинги и историю выполнения. Продолжить?')
+    const confirmed = window.confirm('Загрузка файла полностью заменит текущих пользователей, обязанности, задачи, рейтинги, семейные карточки, воспоминания и историю выполнения. Продолжить?')
     if (!confirmed) {
       return
     }
@@ -462,7 +464,7 @@ export function FamilyQuestWorkspace() {
               <section className="topbar-focus" aria-label="Общий прогресс семьи">
                 <div>
                   <p className="eyebrow">Прогресс семьи</p>
-                  <h2>{completedTasks}/{tasks.length} дел отмечено</h2>
+                  <h2>{completedTasks}/{totalTasks} дел отмечено</h2>
                 </div>
                 <div className="progress-track" aria-label={`Общий прогресс ${overallProgress}%`}>
                   <span style={{ width: `${overallProgress}%` }} />
@@ -480,9 +482,11 @@ export function FamilyQuestWorkspace() {
 
       {activeTab === 'day' && <Planner participant={currentParticipant} participants={participants} tasks={tasks} filteredTasks={filteredTasks} reviewTasks={tasksForReview} assignments={assignments} ratings={behaviorRatings} day={dayLeaderboard} week={weekLeaderboard} month={monthLeaderboard} date={selectedDate} loading={isLoading} busyTask={busyTask} busyBehavior={busyBehavior} controls={renderPlanControls()} onComplete={completeTask} onConfirm={confirmTask} onRate={rateBehavior} />}
 
-      {activeTab === 'catalog' && <Catalog chores={chores} editingId={editingChoreId} onAdd={startNewChore} onEdit={startEditChore} newEditor={<ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} editor={() => <ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} />}
+      {activeTab === 'family' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <FamilyLife key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} />}
 
-      {activeTab === 'users' && <Settings participants={participants} tasks={tasks} rewards={rewards} pinEdit={pinEdit} setPinEdit={setPinEdit} newParticipant={newParticipant} setNewParticipant={setNewParticipant} newReward={newReward} setNewReward={setNewReward} backupBusy={isBackupBusy} onSavePin={saveParticipantPIN} onDeleteParticipant={deleteParticipant} onCreateParticipant={createParticipant} onExport={exportBackup} onImport={importBackup} onDeleteReward={deleteReward} onCreateReward={createReward} onToggleRewardParticipant={toggleRewardParticipant} />}
+      {currentParticipant?.role === 'parent' && activeTab === 'catalog' && <Catalog chores={chores} editingId={editingChoreId} onAdd={startNewChore} onEdit={startEditChore} newEditor={<ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} editor={() => <ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} />}
+
+      {currentParticipant?.role === 'parent' && activeTab === 'users' && <Settings participants={participants} tasks={tasks} rewards={rewards} pinEdit={pinEdit} setPinEdit={setPinEdit} newParticipant={newParticipant} setNewParticipant={setNewParticipant} newReward={newReward} setNewReward={setNewReward} backupBusy={isBackupBusy} onSavePin={saveParticipantPIN} onDeleteParticipant={deleteParticipant} onCreateParticipant={createParticipant} onExport={exportBackup} onImport={importBackup} onDeleteReward={deleteReward} onCreateReward={createReward} onToggleRewardParticipant={toggleRewardParticipant} />}
     </main>
   )
 }

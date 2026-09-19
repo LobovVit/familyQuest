@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lobov/familyquest/backend/internal/application"
+	"github.com/lobov/familyquest/backend/internal/auth"
 	"github.com/lobov/familyquest/backend/internal/domain"
 )
 
@@ -38,10 +40,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	limit := int64(1 << 20)
+	if strings.HasPrefix(r.URL.Path, "/api/family") {
+		limit = 2 << 20
+	}
+	if r.URL.Path == "/api/backup" {
+		limit = 64 << 20
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	s.mux.ServeHTTP(w, r)
 }
 
 func (s *Server) routes() {
+	s.familyRoutes()
 	s.mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Ready(r.Context()); err != nil {
 			writeError(w, http.StatusServiceUnavailable, "database unavailable")
@@ -76,9 +87,14 @@ type principalKey struct{}
 
 func (s *Server) authorize(parentOnly bool, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, err := s.store.ParseToken(r.Header.Get("Authorization"))
+		token, err := auth.Bearer(r.Header.Get("Authorization"))
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "authentication required")
+			respond(w, nil, err)
+			return
+		}
+		p, err := s.store.ParseToken(r.Context(), token)
+		if err != nil {
+			respond(w, nil, err)
 			return
 		}
 		if parentOnly && !p.IsParent() {
@@ -98,7 +114,7 @@ func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
 		ParticipantID int64  `json:"participantId"`
 		PIN           string `json:"pin"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -121,7 +137,7 @@ func (s *Server) createParticipant(w http.ResponseWriter, r *http.Request) {
 		Role string `json:"role"`
 		PIN  string `json:"pin"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -133,7 +149,7 @@ func (s *Server) createParticipant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
 		return
 	}
-	participant, err := s.store.CreateParticipant(r.Context(), domain.Participant{Name: request.Name, Role: request.Role}, request.PIN)
+	participant, err := s.store.CreateParticipant(r.Context(), principal(r), domain.Participant{Name: request.Name, Role: request.Role}, request.PIN)
 	respondCreated(w, participant, err)
 }
 
@@ -143,7 +159,7 @@ func (s *Server) deleteParticipant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown participant")
 		return
 	}
-	err := s.store.DeleteParticipant(r.Context(), id)
+	err := s.store.DeleteParticipant(r.Context(), principal(r), id)
 	respond(w, map[string]string{"status": "deleted"}, err)
 }
 
@@ -156,7 +172,7 @@ func (s *Server) updateParticipantPIN(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		PIN string `json:"pin"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -164,7 +180,7 @@ func (s *Server) updateParticipantPIN(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
 		return
 	}
-	participant, err := s.store.UpdateParticipantPIN(r.Context(), id, request.PIN)
+	participant, err := s.store.UpdateParticipantPIN(r.Context(), principal(r), id, request.PIN)
 	respond(w, participant, err)
 }
 
@@ -175,11 +191,11 @@ func (s *Server) listChores(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createChore(w http.ResponseWriter, r *http.Request) {
 	var chore domain.Chore
-	if err := json.NewDecoder(r.Body).Decode(&chore); err != nil {
+	if err := decodeJSON(r, &chore); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	created, err := s.store.CreateChore(r.Context(), chore)
+	created, err := s.store.CreateChore(r.Context(), principal(r), chore)
 	respondCreated(w, created, err)
 }
 
@@ -190,12 +206,12 @@ func (s *Server) updateChore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var chore domain.Chore
-	if err := json.NewDecoder(r.Body).Decode(&chore); err != nil {
+	if err := decodeJSON(r, &chore); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	chore.ID = id
-	updated, err := s.store.UpdateChore(r.Context(), chore)
+	updated, err := s.store.UpdateChore(r.Context(), principal(r), chore)
 	respond(w, updated, err)
 }
 
@@ -209,22 +225,30 @@ func (s *Server) createAssignment(w http.ResponseWriter, r *http.Request) {
 		ChoreID       int64 `json:"choreId"`
 		ParticipantID int64 `json:"participantId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	assignment, err := s.store.CreateAssignment(r.Context(), request.ChoreID, request.ParticipantID)
+	assignment, err := s.store.CreateAssignment(r.Context(), principal(r), request.ChoreID, request.ParticipantID)
 	respondCreated(w, assignment, err)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
-	date := parseDate(r.URL.Query().Get("date"))
+	date, err := parseDate(r.URL.Query().Get("date"))
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
 	tasks, err := s.store.ListTasks(r.Context(), date)
 	respond(w, tasks, err)
 }
 
 func (s *Server) weekPlan(w http.ResponseWriter, r *http.Request) {
-	date := parseDate(r.URL.Query().Get("date"))
+	date, err := parseDate(r.URL.Query().Get("date"))
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
 	items, err := s.store.ListWeekPlan(r.Context(), date)
 	respond(w, items, err)
 }
@@ -241,7 +265,7 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			ParticipantID int64 `json:"participantId"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := decodeJSON(r, &request); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
@@ -253,7 +277,7 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request) {
 			Rating        int    `json:"rating"`
 			Comment       string `json:"comment"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := decodeJSON(r, &request); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
@@ -269,7 +293,11 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	if period != "day" && period != "month" {
 		period = "week"
 	}
-	date := parseDate(r.URL.Query().Get("date"))
+	date, err := parseDate(r.URL.Query().Get("date"))
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
 	entries, err := s.store.Leaderboard(r.Context(), period, date)
 	respond(w, entries, err)
 }
@@ -282,17 +310,25 @@ func (s *Server) rateBehavior(w http.ResponseWriter, r *http.Request) {
 		Rating              int    `json:"rating"`
 		Comment             string `json:"comment"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	date := parseDate(request.Date)
+	date, err := parseDate(request.Date)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
 	behavior, err := s.store.RateBehavior(r.Context(), principal(r), date, request.TargetParticipantID, request.Rating, request.Comment)
 	respondCreated(w, behavior, err)
 }
 
 func (s *Server) listBehaviorRatings(w http.ResponseWriter, r *http.Request) {
-	date := parseDate(r.URL.Query().Get("date"))
+	date, err := parseDate(r.URL.Query().Get("date"))
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
 	ratings, err := s.store.ListBehaviorRatings(r.Context(), date)
 	respond(w, ratings, err)
 }
@@ -304,7 +340,7 @@ func (s *Server) listRewards(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createReward(w http.ResponseWriter, r *http.Request) {
 	var reward domain.Reward
-	if err := json.NewDecoder(r.Body).Decode(&reward); err != nil {
+	if err := decodeJSON(r, &reward); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -312,7 +348,7 @@ func (s *Server) createReward(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
 	}
-	created, err := s.store.CreateReward(r.Context(), reward)
+	created, err := s.store.CreateReward(r.Context(), principal(r), reward)
 	respondCreated(w, created, err)
 }
 
@@ -322,14 +358,14 @@ func (s *Server) deleteReward(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown reward")
 		return
 	}
-	err := s.store.DeleteReward(r.Context(), id)
+	err := s.store.DeleteReward(r.Context(), principal(r), id)
 	respond(w, map[string]string{"status": "deleted"}, err)
 }
 
 func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
-	backup, err := s.store.ExportBackup(r.Context())
+	backup, err := s.store.ExportBackup(r.Context(), principal(r))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		respond(w, nil, err)
 		return
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="familyquest-backup.json"`)
@@ -337,18 +373,19 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
 	defer r.Body.Close()
 
-	payload, err := io.ReadAll(r.Body)
-	if err != nil || len(payload) == 0 {
+	var backup application.BackupData
+	if err := decodeJSON(r, &backup); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid backup JSON")
 		return
 	}
-	if err := s.store.ImportBackup(r.Context(), payload); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if err := s.store.ImportBackup(r.Context(), principal(r), backup); err != nil {
+		respond(w, nil, err)
 		return
 	}
+
 	respond(w, map[string]string{"status": "imported"}, nil)
 }
 
@@ -358,7 +395,7 @@ func parseTaskAction(path string) (int64, string, bool) {
 		return 0, "", false
 	}
 	id, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		return 0, "", false
 	}
 	return id, parts[3], true
@@ -370,7 +407,7 @@ func parseIDPath(path string, first string, second string) (int64, bool) {
 		return 0, false
 	}
 	id, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		return 0, false
 	}
 	return id, true
@@ -382,63 +419,65 @@ func parseActionPath(path string, first string, second string, action string) (i
 		return 0, false
 	}
 	id, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		return 0, false
 	}
 	return id, true
 }
 
-func parseDate(value string) time.Time {
+func parseDate(value string) (time.Time, error) {
 	if value == "" {
-		return time.Now()
+		return time.Now(), nil
 	}
 	parsed, err := time.Parse("2006-01-02", value)
 	if err != nil {
-		return time.Now()
+		return time.Time{}, domain.ErrInvalidInput
 	}
-	return parsed
+	return parsed, nil
+}
+
+func decodeJSON(r *http.Request, value any) error {
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return domain.ErrInvalidInput
+	}
+	return nil
 }
 
 func respond(w http.ResponseWriter, payload any, err error) {
-	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, domain.ErrNotFound) {
-			status = http.StatusNotFound
-		}
-		if errors.Is(err, domain.ErrInvalidRating) {
-			status = http.StatusBadRequest
-		}
-		if errors.Is(err, domain.ErrInvalidPIN) {
-			status = http.StatusUnauthorized
-		}
-		if errors.Is(err, domain.ErrInvalidPINFormat) || errors.Is(err, domain.ErrInvalidRole) {
-			status = http.StatusBadRequest
-		}
-		if errors.Is(err, domain.ErrForbidden) {
-			status = http.StatusForbidden
-		}
-		writeError(w, status, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, payload)
+	respondStatus(w, payload, err, http.StatusOK)
 }
-
 func respondCreated(w http.ResponseWriter, payload any, err error) {
-	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, domain.ErrNotFound) {
-			status = http.StatusNotFound
-		}
-		if errors.Is(err, domain.ErrInvalidPINFormat) || errors.Is(err, domain.ErrInvalidRole) || errors.Is(err, domain.ErrInvalidRating) {
-			status = http.StatusBadRequest
-		}
-		if errors.Is(err, domain.ErrForbidden) {
-			status = http.StatusForbidden
-		}
-		writeError(w, status, err.Error())
+	respondStatus(w, payload, err, http.StatusCreated)
+}
+func respondStatus(w http.ResponseWriter, payload any, err error, success int) {
+	if err == nil {
+		writeJSON(w, success, payload)
 		return
 	}
-	writeJSON(w, http.StatusCreated, payload)
+	status := http.StatusInternalServerError
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, domain.ErrInvalidRating), errors.Is(err, domain.ErrInvalidPINFormat), errors.Is(err, domain.ErrInvalidRole), errors.Is(err, domain.ErrInvalidInput):
+		status = http.StatusBadRequest
+	case errors.Is(err, domain.ErrInvalidPIN), errors.Is(err, domain.ErrUnauthorized):
+		status = http.StatusUnauthorized
+	case errors.Is(err, domain.ErrForbidden):
+		status = http.StatusForbidden
+	case errors.Is(err, domain.ErrConflict):
+		status = http.StatusConflict
+	}
+	message := err.Error()
+	if status == http.StatusInternalServerError {
+		log.Printf("API error: %v", err)
+		message = "internal server error"
+	}
+	writeError(w, status, message)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

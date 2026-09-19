@@ -40,7 +40,22 @@ func (s *Store) Close() {
 func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
 func (s *Store) Migrate(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `create table if not exists schema_migrations (version text primary key, applied_at timestamptz not null default now())`); err != nil {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `select pg_advisory_lock(192837465)`); err != nil {
+		return err
+	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(unlockCtx, `select pg_advisory_unlock(192837465)`); err != nil {
+			_ = conn.Conn().Close(unlockCtx)
+		}
+	}()
+	if _, err := conn.Exec(ctx, `create table if not exists schema_migrations (version text primary key, applied_at timestamptz not null default now())`); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir("migrations")
@@ -56,7 +71,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 			continue
 		}
 		var applied bool
-		if err := s.pool.QueryRow(ctx, `select exists(select 1 from schema_migrations where version=$1)`, entry.Name()).Scan(&applied); err != nil {
+		if err := conn.QueryRow(ctx, `select exists(select 1 from schema_migrations where version=$1)`, entry.Name()).Scan(&applied); err != nil {
 			return err
 		}
 		if applied {
@@ -70,7 +85,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		tx, err := s.pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return err
 		}
@@ -96,7 +111,7 @@ func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
 	}
 	defer rows.Close()
 
-	var participants []Participant
+	participants := make([]Participant, 0)
 	for rows.Next() {
 		var p Participant
 		if err := rows.Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt); err != nil {
@@ -109,7 +124,7 @@ func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
 
 func (s *Store) GetParticipant(ctx context.Context, id int64) (Participant, error) {
 	var p Participant
-	err := s.pool.QueryRow(ctx, `select id,name,role,active,created_at from participants where id=$1 and active=true`, id).Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt)
+	err := s.pool.QueryRow(ctx, `select id,name,role,active,created_at,session_version from participants where id=$1 and active=true`, id).Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt, &p.SessionVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, domain.ErrUnauthorized
 	}
@@ -120,8 +135,8 @@ func (s *Store) CreateParticipant(ctx context.Context, participant Participant, 
 	if participant.Role == "" {
 		participant.Role = "child"
 	}
-	if pin == "" {
-		pin = "000000"
+	if err := domain.ValidatePIN(pin); err != nil {
+		return participant, err
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
 	if err != nil {
@@ -130,9 +145,12 @@ func (s *Store) CreateParticipant(ctx context.Context, participant Participant, 
 	err = s.pool.QueryRow(ctx, `
 		insert into participants (name, role, pin_code, pin_hash, active)
 		values ($1, $2, null, $3, true)
-		on conflict (name) do update set role = excluded.role, pin_code = null, pin_hash = excluded.pin_hash, active = true
+		on conflict (name) do nothing
 		returning id, name, role, active, created_at
 	`, participant.Name, participant.Role, string(hash)).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return participant, domain.ErrConflict
+	}
 	return participant, err
 }
 
@@ -142,6 +160,17 @@ func (s *Store) DeleteParticipant(ctx context.Context, participantID int64) erro
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `lock table participants in share row exclusive mode`); err != nil {
+		return err
+	}
+	var lastParent bool
+	if err := tx.QueryRow(ctx, `select exists(select 1 from participants where id=$1 and active and role='parent') and (select count(*) from participants where active and role='parent')=1`, participantID).Scan(&lastParent); err != nil {
+		return err
+	}
+	if lastParent {
+		return domain.ErrConflict
+	}
+
 	tag, err := tx.Exec(ctx, `
 		update participants
 		set active = false
@@ -170,10 +199,10 @@ func (s *Store) UpdateParticipantPIN(ctx context.Context, participantID int64, p
 	}
 	err = s.pool.QueryRow(ctx, `
 		update participants
-		set pin_code = null, pin_hash = $2
+		set pin_code = null, pin_hash = $2, session_version = session_version + 1
 		where id = $1 and active = true
-		returning id, name, role, active, created_at
-	`, participantID, string(hash)).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt)
+		returning id, name, role, active, created_at, session_version
+	`, participantID, string(hash)).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt, &participant.SessionVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Participant{}, ErrNotFound
 	}
@@ -184,10 +213,10 @@ func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, p
 	var participant Participant
 	var legacy, hash *string
 	err := s.pool.QueryRow(ctx, `
-		select id, name, role, active, created_at, pin_code, coalesce(pin_hash, '')
+		select id, name, role, active, created_at, pin_code, coalesce(pin_hash, ''), session_version
 		from participants
 		where id = $1 and active = true
-	`, participantID).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt, &legacy, &hash)
+	`, participantID).Scan(&participant.ID, &participant.Name, &participant.Role, &participant.Active, &participant.CreatedAt, &legacy, &hash, &participant.SessionVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Participant{}, ErrInvalidPIN
 	}
@@ -195,12 +224,12 @@ func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, p
 		return Participant{}, err
 	}
 	valid := hash != nil && bcrypt.CompareHashAndPassword([]byte(*hash), []byte(pin)) == nil
-	if !valid && legacy != nil && *legacy == pin {
+	if !valid && (hash == nil || *hash == "") && legacy != nil && *legacy == pin {
 		newHash, hashErr := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
 		if hashErr != nil {
 			return Participant{}, hashErr
 		}
-		if _, hashErr = s.pool.Exec(ctx, `update participants set pin_hash=$2, pin_code=null where id=$1`, participantID, string(newHash)); hashErr != nil {
+		if _, hashErr = s.pool.Exec(ctx, `update participants set pin_hash=$2, pin_code=null where id=$1 and pin_code=$3 and coalesce(pin_hash,'')=''`, participantID, string(newHash), pin); hashErr != nil {
 			return Participant{}, hashErr
 		}
 		valid = true
@@ -227,7 +256,7 @@ func (s *Store) ListChores(ctx context.Context) ([]Chore, error) {
 	}
 	defer rows.Close()
 
-	var chores []Chore
+	chores := make([]Chore, 0)
 	for rows.Next() {
 		var c Chore
 		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Schedule, &c.TimeWindow, &c.BenefitType, &c.ExecutionMode, &c.BaseValue, &c.Active, &c.CreatedAt); err != nil {
@@ -248,11 +277,9 @@ func (s *Store) ListChores(ctx context.Context) ([]Chore, error) {
 }
 
 func (s *Store) CreateChore(ctx context.Context, chore Chore) (Chore, error) {
-	if chore.BenefitType == "" {
-		chore.BenefitType = "self"
-	}
-	if chore.ExecutionMode == "" {
-		chore.ExecutionMode = "assigned"
+	chore, err := domain.NormalizeChore(chore)
+	if err != nil {
+		return chore, err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -288,11 +315,9 @@ func (s *Store) CreateChore(ctx context.Context, chore Chore) (Chore, error) {
 }
 
 func (s *Store) UpdateChore(ctx context.Context, chore Chore) (Chore, error) {
-	if chore.BenefitType == "" {
-		chore.BenefitType = "self"
-	}
-	if chore.ExecutionMode == "" {
-		chore.ExecutionMode = "assigned"
+	chore, err := domain.NormalizeChore(chore)
+	if err != nil {
+		return chore, err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -344,7 +369,7 @@ func (s *Store) ListAssignments(ctx context.Context) ([]Assignment, error) {
 		from assignments a
 		join chores c on c.id = a.chore_id
 		join participants p on p.id = a.participant_id
-		where a.active = true and c.active = true
+		where a.active = true and c.active = true and p.active = true
 		order by a.id
 	`)
 	if err != nil {
@@ -352,7 +377,7 @@ func (s *Store) ListAssignments(ctx context.Context) ([]Assignment, error) {
 	}
 	defer rows.Close()
 
-	var assignments []Assignment
+	assignments := make([]Assignment, 0)
 	for rows.Next() {
 		var a Assignment
 		if err := rows.Scan(&a.ID, &a.ChoreID, &a.ParticipantID, &a.ChoreTitle, &a.PersonName, &a.Schedule, &a.TimeWindow, &a.BenefitType, &a.ExecutionMode, &a.BaseValue, &a.CreatedAt); err != nil {
@@ -390,6 +415,8 @@ func (s *Store) loadChoreParticipants(ctx context.Context, chores []Chore) error
 	choreByID := make(map[int64]*Chore, len(chores))
 	ids := make([]int64, 0, len(chores))
 	for index := range chores {
+		chores[index].ParticipantIDs = []int64{}
+		chores[index].ParticipantNames = []string{}
 		choreByID[chores[index].ID] = &chores[index]
 		ids = append(ids, chores[index].ID)
 	}
@@ -398,7 +425,7 @@ func (s *Store) loadChoreParticipants(ctx context.Context, chores []Chore) error
 		select a.chore_id, p.id, p.name
 		from assignments a
 		join participants p on p.id = a.participant_id
-		where a.active = true and a.chore_id = any($1)
+		where a.active = true and p.active = true and a.chore_id = any($1)
 		order by a.chore_id, p.id
 	`, ids)
 	if err != nil {
@@ -451,15 +478,18 @@ func (s *Store) EnsureTasksForDate(ctx context.Context, dueDate time.Time) error
 		insert into tasks (assignment_id, due_date)
 		select a.id,
 		       case
-		         when c.schedule = 'weekly' then $2::date
+		         when c.schedule = 'once' then a.created_at::date
+ when c.schedule = 'weekly' then $2::date
 		         when c.schedule = 'monthly' then $3::date
 		         else $1::date
 		       end
 		from assignments a
 		join chores c on c.id = a.chore_id
-		where a.active = true
+ join participants p on p.id=a.participant_id
+		where p.active = true and a.active = true
+ and p.active = true
 		  and c.active = true
-		  and c.schedule in ('daily', 'weekly', 'monthly')
+		  and c.schedule in ('once', 'daily', 'weekly', 'monthly')
 		on conflict (assignment_id, due_date) do nothing
 	`, dueDate.Format("2006-01-02"), weekStart.Format("2006-01-02"), monthStart.Format("2006-01-02"))
 	return err
@@ -482,11 +512,13 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 		join participants p on p.id = a.participant_id
 		left join confirmations conf on conf.task_id = t.id
 		where (
-		    (c.schedule = 'daily' and t.due_date = $1::date)
+		    (c.schedule = 'once' and t.due_date <= $1::date and t.status in ('pending', 'needs_work', 'completed'))
+ or (c.schedule = 'daily' and t.due_date = $1::date)
 		    or (c.schedule = 'weekly' and t.due_date = $2::date and t.status in ('pending', 'needs_work', 'completed'))
 		    or (c.schedule = 'monthly' and t.due_date = $3::date and t.status in ('pending', 'needs_work', 'completed'))
 		  )
 		  and a.active = true
+ and p.active = true
 		  and c.active = true
 		group by t.id, a.chore_id, a.participant_id, c.title, c.description, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode, c.base_value
 		order by
@@ -500,7 +532,7 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 	}
 	defer rows.Close()
 
-	var tasks []Task
+	tasks := make([]Task, 0)
 	for rows.Next() {
 		var t Task
 		if err := rows.Scan(&t.ID, &t.AssignmentID, &t.ChoreID, &t.ParticipantID, &t.ChoreTitle, &t.ChoreDescription, &t.PersonName, &t.DueDate, &t.Schedule, &t.TimeWindow, &t.BenefitType, &t.ExecutionMode, &t.Status, &t.CompletedAt, &t.ConfirmedAt, &t.AverageRating, &t.Reward); err != nil {
@@ -540,6 +572,7 @@ func (s *Store) ListWeekPlan(ctx context.Context, at time.Time) ([]WeekPlanItem,
 			  and t.due_date >= $1::date
 			  and t.due_date < $2::date
 			where a.active = true
+ and p.active = true
 			  and c.active = true
 			  and c.schedule in ('daily', 'weekly')
 			group by a.id, a.chore_id, a.participant_id, c.title, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode
@@ -564,6 +597,7 @@ func (s *Store) ListWeekPlan(ctx context.Context, at time.Time) ([]WeekPlanItem,
 			  and t.completed_at >= $1::date
 			  and t.completed_at < $2::date
 			where a.active = true
+ and p.active = true
 			  and c.active = true
 			  and c.schedule = 'monthly'
 			group by a.id, a.chore_id, a.participant_id, c.title, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode
@@ -586,7 +620,7 @@ func (s *Store) ListWeekPlan(ctx context.Context, at time.Time) ([]WeekPlanItem,
 	}
 	defer rows.Close()
 
-	var items []WeekPlanItem
+	items := make([]WeekPlanItem, 0)
 	for rows.Next() {
 		var item WeekPlanItem
 		if err := rows.Scan(&item.AssignmentID, &item.ChoreID, &item.ParticipantID, &item.ChoreTitle, &item.PersonName, &item.Schedule, &item.TimeWindow, &item.BenefitType, &item.ExecutionMode, &item.PlannedCount, &item.DoneCount, &item.ConfirmedCount); err != nil {
@@ -603,6 +637,7 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, participantID int64) (
 		update tasks
 		set status = 'completed', completed_by = $2, completed_at = now()
 		where id = $1 and status in ('pending', 'needs_work')
+ and exists (select 1 from assignments a join participants p on p.id=a.participant_id where a.id=tasks.assignment_id and a.participant_id=$2 and a.active and p.active)
 		returning due_date
 	`, taskID, participantID).Scan(&dueDate)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -625,7 +660,7 @@ func (s *Store) ConfirmTask(ctx context.Context, taskID, participantID int64, ra
 	}
 	defer tx.Rollback(ctx)
 
-	err = tx.QueryRow(ctx, `select due_date from tasks where id = $1`, taskID).Scan(&dueDate)
+	err = tx.QueryRow(ctx, `select due_date from tasks where id = $1 and status in ('completed', 'confirmed') for update`, taskID).Scan(&dueDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -694,17 +729,23 @@ func (s *Store) ListBehaviorRatings(ctx context.Context, ratedDate time.Time) ([
 	return ratings, rows.Err()
 }
 
-func (s *Store) GetTask(ctx context.Context, taskID int64, dueDate time.Time) (Task, error) {
-	tasks, err := s.ListTasks(ctx, dueDate)
-	if err != nil {
-		return Task{}, err
+func (s *Store) GetTask(ctx context.Context, taskID int64, _ time.Time) (Task, error) {
+	var task Task
+	err := s.pool.QueryRow(ctx, `
+ select t.id, t.assignment_id, a.chore_id, a.participant_id, c.title, c.description, p.name, t.due_date::text,
+ c.schedule, c.time_window, c.benefit_type, c.execution_mode, t.status, t.completed_at, t.confirmed_at,
+ coalesce(avg(conf.rating),0)::float,
+ coalesce(round((c.base_value * coalesce(avg(conf.rating),0) / 5.0)::numeric,2),0)::float
+ from tasks t join assignments a on a.id=t.assignment_id join chores c on c.id=a.chore_id
+ join participants p on p.id=a.participant_id left join confirmations conf on conf.task_id=t.id
+ where t.id=$1
+ group by t.id,a.chore_id,a.participant_id,c.id,p.name`, taskID).Scan(
+		&task.ID, &task.AssignmentID, &task.ChoreID, &task.ParticipantID, &task.ChoreTitle, &task.ChoreDescription, &task.PersonName, &task.DueDate,
+		&task.Schedule, &task.TimeWindow, &task.BenefitType, &task.ExecutionMode, &task.Status, &task.CompletedAt, &task.ConfirmedAt, &task.AverageRating, &task.Reward)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return task, ErrNotFound
 	}
-	for _, task := range tasks {
-		if task.ID == taskID {
-			return task, nil
-		}
-	}
-	return Task{}, ErrNotFound
+	return task, err
 }
 
 func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([]LeaderboardEntry, error) {
@@ -728,7 +769,8 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 			  and a.active = true
 			  and (
 				c.schedule = 'daily'
-				or (c.schedule = 'weekly' and extract(isodow from days.day) = 6)
+ or (c.schedule = 'once' and days.day::date = a.created_at::date)
+				or (c.schedule = 'weekly' and extract(isodow from days.day) = 1)
 				or (c.schedule = 'monthly' and extract(day from days.day) = 1)
 			  )
 		) planned on true
@@ -764,7 +806,7 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 	}
 	defer rows.Close()
 
-	var entries []LeaderboardEntry
+	entries := make([]LeaderboardEntry, 0)
 	for rows.Next() {
 		var entry LeaderboardEntry
 		if err := rows.Scan(&entry.ParticipantID, &entry.Name, &entry.TasksDone, &entry.TasksAssigned, &entry.Reward, &entry.AverageRating, &entry.BehaviorRating, &entry.BehaviorCount, &entry.BehaviorSmiles); err != nil {
@@ -787,7 +829,7 @@ func (s *Store) ListRewards(ctx context.Context) ([]Reward, error) {
 	}
 	defer rows.Close()
 
-	var rewards []Reward
+	rewards := make([]Reward, 0)
 	for rows.Next() {
 		var reward Reward
 		if err := rows.Scan(&reward.ID, &reward.Title, &reward.Description, &reward.Period, &reward.RewardType, &reward.StarCost, &reward.SmileCost, &reward.Active, &reward.CreatedAt); err != nil {
@@ -808,21 +850,9 @@ func (s *Store) ListRewards(ctx context.Context) ([]Reward, error) {
 }
 
 func (s *Store) CreateReward(ctx context.Context, reward Reward) (Reward, error) {
-	if reward.Period == "" {
-		reward.Period = "week"
-	}
-	if reward.RewardType == "" {
-		reward.RewardType = "champion"
-	}
-	if reward.RewardType == "champion" {
-		reward.StarCost = 0
-		reward.SmileCost = 0
-	}
-	if reward.RewardType == "stars" {
-		reward.SmileCost = 0
-	}
-	if reward.RewardType == "smiles" {
-		reward.StarCost = 0
+	reward, err := domain.NormalizeReward(reward)
+	if err != nil {
+		return reward, err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -880,6 +910,8 @@ func (s *Store) loadRewardParticipants(ctx context.Context, rewards []Reward) er
 	rewardByID := make(map[int64]*Reward, len(rewards))
 	ids := make([]int64, 0, len(rewards))
 	for index := range rewards {
+		rewards[index].ParticipantIDs = []int64{}
+		rewards[index].ParticipantNames = []string{}
 		rewardByID[rewards[index].ID] = &rewards[index]
 		ids = append(ids, rewards[index].ID)
 	}

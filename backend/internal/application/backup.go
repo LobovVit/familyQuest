@@ -1,10 +1,15 @@
 package application
 
-import "time"
+import (
+	"fmt"
+	"github.com/lobov/familyquest/backend/internal/domain"
+	"time"
+)
 
-const BackupVersion = 1
+const BackupVersion = 2
 
 type BackupData struct {
+	FamilyEntries      []domain.FamilyEntry      `json:"familyEntries"`
 	Version            int                       `json:"version"`
 	ExportedAt         time.Time                 `json:"exportedAt"`
 	Participants       []BackupParticipant       `json:"participants"`
@@ -87,4 +92,30 @@ type BackupRewardParticipant struct {
 	ParticipantID int64     `json:"participantId"`
 	Active        bool      `json:"active"`
 	CreatedAt     time.Time `json:"createdAt"`
+}
+
+// Validate rejects unsupported and unusable backups before touching stored data.
+func (b BackupData) Validate() error {
+	if b.Version != 1 && b.Version != BackupVersion {
+		return fmt.Errorf("%w: unsupported backup version %d", domain.ErrInvalidInput, b.Version)
+	}
+	hasParent := false
+	for _, p := range b.Participants {
+		if p.ID <= 0 || p.Name == "" {
+			return domain.ErrInvalidInput
+		}
+		if err := domain.ValidateRole(p.Role); err != nil {
+			return err
+		}
+		if p.PINCode != "" {
+			if err := domain.ValidatePIN(p.PINCode); err != nil {
+				return err
+			}
+		}
+		hasParent = hasParent || (p.Active && p.Role == domain.RoleParent)
+	}
+	if !hasParent {
+		return fmt.Errorf("%w: backup requires an active parent", domain.ErrInvalidInput)
+	}
+	return b.validateFamily()
 }

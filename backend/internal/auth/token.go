@@ -20,6 +20,7 @@ type Tokens struct {
 	now    func() time.Time
 }
 type claims struct {
+	Version int64  `json:"ver"`
 	Subject string `json:"sub"`
 	Role    string `json:"role"`
 	Expires int64  `json:"exp"`
@@ -36,7 +37,7 @@ func New(secret string, ttl time.Duration) (*Tokens, error) {
 }
 func (t *Tokens) Issue(p domain.Participant) (string, error) {
 	h := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	b, err := json.Marshal(claims{Subject: strconv.FormatInt(p.ID, 10), Role: p.Role, Expires: t.now().Add(t.ttl).Unix()})
+	b, err := json.Marshal(claims{Version: p.SessionVersion, Subject: strconv.FormatInt(p.ID, 10), Role: p.Role, Expires: t.now().Add(t.ttl).Unix()})
 	if err != nil {
 		return "", err
 	}
@@ -66,10 +67,10 @@ func (t *Tokens) Parse(token string) (domain.Principal, error) {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
 	id, err := strconv.ParseInt(c.Subject, 10, 64)
-	if err != nil || domain.ValidateRole(c.Role) != nil {
+	if err != nil || id <= 0 || domain.ValidateRole(c.Role) != nil {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
-	return domain.Principal{ParticipantID: id, Role: c.Role}, nil
+	return domain.Principal{ParticipantID: id, Role: c.Role, SessionVersion: c.Version}, nil
 }
 func Bearer(header string) (string, error) {
 	p := strings.Fields(header)

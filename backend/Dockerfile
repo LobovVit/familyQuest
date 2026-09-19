@@ -16,7 +16,6 @@ RUN addgroup -S familyquest && adduser -S -G familyquest -h /app familyquest
 
 COPY --from=build /bin/familyquest-api /usr/local/bin/familyquest-api
 COPY --chown=familyquest:familyquest migrations ./migrations
-COPY --chown=familyquest:familyquest seed ./seed
 
 USER familyquest
 

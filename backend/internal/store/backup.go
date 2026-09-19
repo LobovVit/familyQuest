@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/lobov/familyquest/backend/internal/application"
+	"github.com/lobov/familyquest/backend/internal/domain"
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -29,15 +29,21 @@ type BackupRewardParticipant = application.BackupRewardParticipant
 
 func (s *Store) ExportBackup(ctx context.Context) (BackupData, error) {
 	backup := emptyBackupData()
-	if err := s.scanBackupRows(ctx, &backup); err != nil {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
 		return BackupData{}, err
 	}
-	return backup, nil
+	defer tx.Rollback(ctx)
+	if err := scanBackupRows(ctx, tx.Query, &backup); err != nil {
+		return BackupData{}, err
+	}
+	return backup, tx.Commit(ctx)
 }
 
 func emptyBackupData() BackupData {
 	return BackupData{
 		Version:            BackupVersion,
+		FamilyEntries:      []domain.FamilyEntry{},
 		ExportedAt:         time.Now().UTC(),
 		Participants:       []BackupParticipant{},
 		Chores:             []BackupChore{},
@@ -51,8 +57,8 @@ func emptyBackupData() BackupData {
 }
 
 func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
-	if backup.Version != BackupVersion {
-		return fmt.Errorf("unsupported backup version %d", backup.Version)
+	if err := backup.Validate(); err != nil {
+		return err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -60,23 +66,32 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// Lock before reading credentials so a concurrent PIN update cannot be lost.
+	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries in access exclusive mode`); err != nil {
+		return err
+	}
+
 	// Credential material is deliberately omitted from exported backups. When a
 	// backup is restored over an existing installation, retain the current
 	// bcrypt hashes. A seed/first restore must explicitly carry legacy PINs so
 	// that we never create a shared, predictable fallback credential.
-	existingHashes := make(map[int64]string)
-	rows, err := tx.Query(ctx, `select id, coalesce(pin_hash, '') from participants`)
+	type credential struct {
+		name, role, hash string
+		version          int64
+	}
+	existingHashes := make(map[int64]credential)
+	rows, err := tx.Query(ctx, `select id, name, role, coalesce(pin_hash, ''), session_version from participants`)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var id int64
-		var hash string
-		if err := rows.Scan(&id, &hash); err != nil {
+		var current credential
+		if err := rows.Scan(&id, &current.name, &current.role, &current.hash, &current.version); err != nil {
 			rows.Close()
 			return err
 		}
-		existingHashes[id] = hash
+		existingHashes[id] = current
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -84,11 +99,15 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	rows.Close()
 
-	if _, err := tx.Exec(ctx, `truncate reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
+	if _, err := tx.Exec(ctx, `truncate family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
 		return err
 	}
 	for _, item := range backup.Participants {
-		hash := existingHashes[item.ID]
+		current := existingHashes[item.ID]
+		hash := ""
+		if current.name == item.Name && current.role == item.Role {
+			hash = current.hash
+		}
 		if item.PINCode != "" {
 			generated, hashErr := bcrypt.GenerateFromPassword([]byte(item.PINCode), bcrypt.DefaultCost)
 			if hashErr != nil {
@@ -97,12 +116,12 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 			hash = string(generated)
 		}
 		if hash == "" {
-			return fmt.Errorf("participant %d has no credential; restore over an initialized database or provide a legacy pinCode", item.ID)
+			return fmt.Errorf("%w: participant %d has no matching credential; restore over an initialized database or provide a legacy pinCode", domain.ErrInvalidInput, item.ID)
 		}
 		if _, err := tx.Exec(ctx, `
-			insert into participants (id, name, role, pin_code, pin_hash, active, created_at)
-			overriding system value values ($1, $2, $3, null, $4, $5, $6)
-			`, item.ID, item.Name, item.Role, hash, item.Active, item.CreatedAt); err != nil {
+			insert into participants (id, name, role, pin_code, pin_hash, active, created_at, session_version)
+			overriding system value values ($1, $2, $3, null, $4, $5, $6, $7)
+			`, item.ID, item.Name, item.Role, hash, item.Active, item.CreatedAt, current.version+1); err != nil {
 			return err
 		}
 	}
@@ -162,6 +181,15 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 			return err
 		}
 	}
+	for _, item := range backup.FamilyEntries {
+		data, err := json.Marshal(item)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `insert into family_entries(id,version,author_id,created_at,updated_at,data) overriding system value values($1,$2,$3,$4,$5,$6)`, item.ID, item.Version, item.AuthorID, item.CreatedAt, item.UpdatedAt, data); err != nil {
+			return err
+		}
+	}
 	if err := resetSequences(ctx, tx); err != nil {
 		return err
 	}
@@ -189,21 +217,7 @@ func (s *Store) SeedFromBackupFile(ctx context.Context, path string) (bool, erro
 	return true, nil
 }
 
-func ResolveSeedPath(path string) string {
-	if path != "" {
-		return path
-	}
-	candidates := []string{
-		filepath.Join("seed", "familyquest-backup.json"),
-		filepath.Join("backend", "seed", "familyquest-backup.json"),
-	}
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return candidates[0]
-}
+func ResolveSeedPath(path string) string { return path }
 
 func (s *Store) HasAnyData(ctx context.Context) (bool, error) {
 	var count int
@@ -221,8 +235,19 @@ func (s *Store) HasAnyData(ctx context.Context) (bool, error) {
 	return count > 0, err
 }
 
-func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
-	if err := scanRows(ctx, s.pool.Query, `select id, name, role, active, created_at from participants order by id`, func(rows pgx.Rows) error {
+func scanBackupRows(ctx context.Context, query func(context.Context, string, ...any) (pgx.Rows, error), backup *BackupData) error {
+	if err := scanRows(ctx, query, "select "+familyColumns+" from family_entries order by id", func(rows pgx.Rows) error {
+		item, err := scanFamilyEntry(rows)
+		if err != nil {
+			return err
+		}
+		backup.FamilyEntries = append(backup.FamilyEntries, item)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := scanRows(ctx, query, `select id, name, role, active, created_at from participants order by id`, func(rows pgx.Rows) error {
 		var item BackupParticipant
 		if err := rows.Scan(&item.ID, &item.Name, &item.Role, &item.Active, &item.CreatedAt); err != nil {
 			return err
@@ -232,7 +257,7 @@ func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, s.pool.Query, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at from chores order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at from chores order by id`, func(rows pgx.Rows) error {
 		var item BackupChore
 		if err := rows.Scan(&item.ID, &item.Title, &item.Description, &item.Schedule, &item.TimeWindow, &item.BenefitType, &item.ExecutionMode, &item.BaseValue, &item.Active, &item.CreatedAt); err != nil {
 			return err
@@ -242,7 +267,7 @@ func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, s.pool.Query, `select id, chore_id, participant_id, active, created_at from assignments order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, chore_id, participant_id, active, created_at from assignments order by id`, func(rows pgx.Rows) error {
 		var item BackupAssignment
 		if err := rows.Scan(&item.ID, &item.ChoreID, &item.ParticipantID, &item.Active, &item.CreatedAt); err != nil {
 			return err
@@ -252,7 +277,7 @@ func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, s.pool.Query, `select id, assignment_id, due_date::text, status, completed_by, completed_at, confirmed_at, created_at from tasks order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, assignment_id, due_date::text, status, completed_by, completed_at, confirmed_at, created_at from tasks order by id`, func(rows pgx.Rows) error {
 		var item BackupTask
 		if err := rows.Scan(&item.ID, &item.AssignmentID, &item.DueDate, &item.Status, &item.CompletedBy, &item.CompletedAt, &item.ConfirmedAt, &item.CreatedAt); err != nil {
 			return err
@@ -262,7 +287,7 @@ func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, s.pool.Query, `select id, task_id, participant_id, rating, comment, created_at from confirmations order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, task_id, participant_id, rating, comment, created_at from confirmations order by id`, func(rows pgx.Rows) error {
 		var item BackupConfirmation
 		if err := rows.Scan(&item.ID, &item.TaskID, &item.ParticipantID, &item.Rating, &item.Comment, &item.CreatedAt); err != nil {
 			return err
@@ -272,7 +297,7 @@ func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, s.pool.Query, `select id, rated_date::text, rater_participant_id, target_participant_id, rating, comment, created_at from behavior_ratings order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, rated_date::text, rater_participant_id, target_participant_id, rating, comment, created_at from behavior_ratings order by id`, func(rows pgx.Rows) error {
 		var item BackupBehaviorRating
 		if err := rows.Scan(&item.ID, &item.RatedDate, &item.RaterParticipantID, &item.TargetParticipantID, &item.Rating, &item.Comment, &item.CreatedAt); err != nil {
 			return err
@@ -282,7 +307,7 @@ func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, s.pool.Query, `select id, title, description, period, reward_type, star_cost, smile_cost, active, created_at from rewards order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, title, description, period, reward_type, star_cost, smile_cost, active, created_at from rewards order by id`, func(rows pgx.Rows) error {
 		var item BackupReward
 		if err := rows.Scan(&item.ID, &item.Title, &item.Description, &item.Period, &item.RewardType, &item.StarCost, &item.SmileCost, &item.Active, &item.CreatedAt); err != nil {
 			return err
@@ -292,7 +317,7 @@ func (s *Store) scanBackupRows(ctx context.Context, backup *BackupData) error {
 	}); err != nil {
 		return err
 	}
-	return scanRows(ctx, s.pool.Query, `select id, reward_id, participant_id, active, created_at from reward_participants order by id`, func(rows pgx.Rows) error {
+	return scanRows(ctx, query, `select id, reward_id, participant_id, active, created_at from reward_participants order by id`, func(rows pgx.Rows) error {
 		var item BackupRewardParticipant
 		if err := rows.Scan(&item.ID, &item.RewardID, &item.ParticipantID, &item.Active, &item.CreatedAt); err != nil {
 			return err
@@ -317,7 +342,7 @@ func scanRows(ctx context.Context, query func(context.Context, string, ...any) (
 }
 
 func resetSequences(ctx context.Context, tx pgx.Tx) error {
-	tables := []string{"participants", "chores", "assignments", "tasks", "confirmations", "behavior_ratings", "rewards", "reward_participants"}
+	tables := []string{"family_entries", "participants", "chores", "assignments", "tasks", "confirmations", "behavior_ratings", "rewards", "reward_participants"}
 	for _, table := range tables {
 		sql := fmt.Sprintf(`
 			select setval(

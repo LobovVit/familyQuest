@@ -94,7 +94,7 @@ export function Settings(props:Props){const {participants,tasks,rewards,pinEdit,
           <section className="panel backup-panel">
             <div>
               <h2>Данные системы</h2>
-              <p>Полная выгрузка пользователей, обязанностей, задач, рейтингов, наград, PIN-кодов и истории выполнения.</p>
+              <p>Полная выгрузка пользователей, обязанностей, задач, рейтингов, наград и истории выполнения. PIN-коды в файл не включаются.</p>
             </div>
             <div className="backup-actions">
               <button disabled={isBackupBusy} type="button" onClick={exportBackup}>
@@ -105,7 +105,7 @@ export function Settings(props:Props){const {participants,tasks,rewards,pinEdit,
                 <input accept="application/json,.json" disabled={isBackupBusy} type="file" onChange={importBackup} />
               </label>
             </div>
-            <p className="settings-note">Для первичного запуска положите этот файл как backend/seed/familyquest-backup.json перед docker-compose up.</p>
+            <p className="settings-note">При восстановлении сохраняются действующие PIN-коды существующих пользователей. Для переноса на новую установку обратитесь к администратору.</p>
           </section>
 
           <section className="panel rewards-panel">

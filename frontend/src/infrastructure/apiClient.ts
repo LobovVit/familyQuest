@@ -12,7 +12,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   if (token) headers.set('Authorization', `Bearer ${token}`)
   const response = await fetch(`${API_URL}${path}`, { ...init, headers })
   if (!response.ok) {
-    if (response.status === 401) clearSession()
+    if (response.status === 401 && path !== '/api/session' && token === getToken()) clearSession()
     const text = await response.text()
     let message = text || `HTTP ${response.status}`
     try { const payload = JSON.parse(text) as { error?:unknown }; if (typeof payload.error === 'string') message = payload.error } catch { /* plain-text response */ }
@@ -26,6 +26,9 @@ export async function download(path: string): Promise<Blob> {
   const token = getToken()
   const headers = new Headers(token ? { Authorization: `Bearer ${token}` } : undefined)
   const response = await fetch(`${API_URL}${path}`, { headers })
-  if (!response.ok) throw new ApiError('Не удалось выгрузить данные', response.status)
+  if (!response.ok) {
+    if (response.status === 401 && token === getToken()) clearSession()
+    throw new ApiError('Не удалось выгрузить данные', response.status)
+  }
   return response.blob()
 }
