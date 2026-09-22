@@ -1,8 +1,11 @@
 import { localDate } from './date'
 export { localDate } from './date'
-export type FamilyKind = 'adventure' | 'habit' | 'value' | 'skill' | 'proposal' | 'council' | 'memory'
+export type FamilyKind = 'adventure' | 'habit' | 'value' | 'skill' | 'proposal' | 'council' | 'memory' | 'sport'
 export type FamilyStep = { title: string; participantId: number }
+export type SportExercise = { name: string; sets: number; reps: number; weightKg: number }
+export type SportSession = { activity: string; minutes: number; distanceKm: number; exercises: SportExercise[] }
 export type FamilyDraft = {
+  sport?: SportSession
   title: string; description: string; date: string; participantIds: number[]; steps: FamilyStep[]
   weekdays: number[]; reminder: string; easyVersion: string; value: string; agreement: string
   nextActivity: string; photo: string; audio: string
@@ -13,16 +16,16 @@ export type FamilyEntry = FamilyDraft & {
   archived: boolean; approved: boolean; events: FamilyEvent[]
 }
 export type FamilyAction = { action: string; date?: string; step?: number; note?: string; easy?: boolean }
-export const kindLabels: Record<FamilyKind, string> = { adventure: 'Приключения', habit: 'Привычки', value: 'Наши ценности', skill: 'Мастерская навыков', proposal: 'Наши идеи', council: 'Семейный совет', memory: 'Капсула памяти' }
-export const kindIcons: Record<FamilyKind, string> = { adventure: '🧭', habit: '🌱', value: '💛', skill: '🛠️', proposal: '💡', council: '💬', memory: '📷' }
+export const kindLabels: Record<FamilyKind, string> = { adventure: 'Приключения', habit: 'Привычки', value: 'Наши ценности', skill: 'Мастерская навыков', proposal: 'Наши идеи', council: 'Семейный совет', memory: 'Капсула памяти', sport: 'Спорт' }
+export const kindIcons: Record<FamilyKind, string> = { adventure: '🧭', habit: '🌱', value: '💛', skill: '🛠️', proposal: '💡', council: '💬', memory: '📷', sport: '🏃' }
 export const stageLabels = ['Посмотрел', 'Сделал вместе', 'Попробовал сам', 'Объяснил другому']
 export const weekdays = [{ id: 1, label: 'Пн' }, { id: 2, label: 'Вт' }, { id: 3, label: 'Ср' }, { id: 4, label: 'Чт' }, { id: 5, label: 'Пт' }, { id: 6, label: 'Сб' }, { id: 0, label: 'Вс' }]
 export function emptyDraft(date = localDate()): FamilyDraft {
   return { title: '', description: '', date, participantIds: [], steps: [], weekdays: [1, 2, 3, 4, 5, 6, 0], reminder: '', easyVersion: '', value: '', agreement: '', nextActivity: '', photo: '', audio: '' }
 }
 export function entryDraft(entry: FamilyEntry): FamilyDraft {
-  const { title, description, date, participantIds, steps, weekdays, reminder, easyVersion, value, agreement, nextActivity, photo, audio } = entry
-  return { title, description, date, participantIds: participantIds ?? [], steps: steps ?? [], weekdays: weekdays ?? [], reminder, easyVersion, value, agreement, nextActivity, photo, audio }
+  const { title, description, date, participantIds, steps, weekdays, reminder, easyVersion, value, agreement, nextActivity, photo, audio, sport } = entry
+  return { title, description, date, participantIds: participantIds ?? [], steps: steps ?? [], weekdays: weekdays ?? [], reminder, easyVersion, value, agreement, nextActivity, photo, audio, ...(sport ? { sport } : {}) }
 }
 export function skillStage(entry: FamilyEntry, actorId: number): number {
   return Math.max(0, ...entry.events.filter(e => e.kind === 'stage' && e.actorId === actorId).map(e => e.step))

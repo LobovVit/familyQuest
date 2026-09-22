@@ -1,3 +1,4 @@
+import { Sports } from './sports/Sports'
 import { FamilyLife } from './family/FamilyLife'
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react'
 import '../App.css'
@@ -21,10 +22,11 @@ type PinPrompt = {
   pin: string
 }
 
-type ActiveTab = 'day' | 'family' | 'catalog' | 'users'
+type ActiveTab = 'day' | 'sport' | 'family' | 'catalog' | 'users'
 
 const tabs: Array<{ id: ActiveTab; label: string; adultsOnly?: boolean }> = [
   { id: 'day', label: 'Планер' },
+  { id: 'sport', label: 'Спорт · занятия и прогресс' },
   { id: 'family', label: 'Семья · привычки и приключения' },
   { id: 'catalog', label: 'Справочник обязанностей', adultsOnly: true },
   { id: 'users', label: 'Настройки пользователей', adultsOnly: true },
@@ -62,7 +64,7 @@ export function FamilyQuestWorkspace() {
   useEffect(() => { if (data.loadError) setError(data.loadError) }, [data.loadError])
 
   const availableTabs = useMemo(() => {
-    return tabs.filter((tab) => (tab.id !== 'family' || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
+    return tabs.filter((tab) => (!['family', 'sport'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
   }, [currentParticipant])
 
   useEffect(() => {
@@ -481,6 +483,8 @@ export function FamilyQuestWorkspace() {
       {pinPrompt && <PinDialog participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
 
       {activeTab === 'day' && <Planner participant={currentParticipant} participants={participants} tasks={tasks} filteredTasks={filteredTasks} reviewTasks={tasksForReview} assignments={assignments} ratings={behaviorRatings} day={dayLeaderboard} week={weekLeaderboard} month={monthLeaderboard} date={selectedDate} loading={isLoading} busyTask={busyTask} busyBehavior={busyBehavior} controls={renderPlanControls()} onComplete={completeTask} onConfirm={confirmTask} onRate={rateBehavior} />}
+
+      {activeTab === 'sport' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <Sports key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} />}
 
       {activeTab === 'family' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <FamilyLife key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} />}
 

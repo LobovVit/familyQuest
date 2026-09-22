@@ -24,19 +24,20 @@ type FamilyEntry struct {
 	Events []FamilyEvent `json:"events"`
 }
 type FamilyDraft struct {
-	Title          string       `json:"title"`
-	Description    string       `json:"description"`
-	Date           string       `json:"date"`
-	ParticipantIDs []int64      `json:"participantIds"`
-	Steps          []FamilyStep `json:"steps"`
-	Weekdays       []int        `json:"weekdays"`
-	Reminder       string       `json:"reminder"`
-	EasyVersion    string       `json:"easyVersion"`
-	Value          string       `json:"value"`
-	Agreement      string       `json:"agreement"`
-	NextActivity   string       `json:"nextActivity"`
-	Photo          string       `json:"photo"`
-	Audio          string       `json:"audio"`
+	Sport          *SportSession `json:"sport,omitempty"`
+	Title          string        `json:"title"`
+	Description    string        `json:"description"`
+	Date           string        `json:"date"`
+	ParticipantIDs []int64       `json:"participantIds"`
+	Steps          []FamilyStep  `json:"steps"`
+	Weekdays       []int         `json:"weekdays"`
+	Reminder       string        `json:"reminder"`
+	EasyVersion    string        `json:"easyVersion"`
+	Value          string        `json:"value"`
+	Agreement      string        `json:"agreement"`
+	NextActivity   string        `json:"nextActivity"`
+	Photo          string        `json:"photo"`
+	Audio          string        `json:"audio"`
 }
 type FamilyStep struct {
 	Title         string `json:"title"`
@@ -64,6 +65,9 @@ func IsFamilyMember(p Principal) bool {
 	return p.ParticipantID > 0 && (p.Role == RoleParent || p.Role == RoleChild)
 }
 func (e FamilyEntry) CanEdit(p Principal) bool {
+	if e.Kind == "sport" {
+		return IsFamilyMember(p) && (p.IsParent() || (len(e.ParticipantIDs) == 1 && e.ParticipantIDs[0] == p.ParticipantID))
+	}
 	return IsFamilyMember(p) && (p.IsParent() || e.AuthorID == p.ParticipantID)
 }
 func familyInvalid(message string) error { return fmt.Errorf("%w: %s", ErrInvalidInput, message) }
@@ -72,7 +76,10 @@ func ValidFamilyDate(value string) bool {
 	return err == nil && d.Year() >= 2000 && d.Year() <= 2100
 }
 func (e FamilyEntry) Validate() error {
-	if !slices.Contains([]string{"adventure", "habit", "value", "skill", "proposal", "council", "memory"}, e.Kind) {
+	if err := e.validateSport(); err != nil {
+		return err
+	}
+	if !slices.Contains([]string{"adventure", "habit", "value", "skill", "proposal", "council", "memory", "sport"}, e.Kind) {
 		return familyInvalid("неизвестный раздел")
 	}
 	if strings.TrimSpace(e.Title) == "" || len([]rune(e.Title)) > 160 {

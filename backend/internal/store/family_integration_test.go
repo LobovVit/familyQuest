@@ -105,11 +105,36 @@ func TestFamilyPostgresLifecycle(t *testing.T) {
 			t.Fatal(kind, err)
 		}
 	}
+
+	sportDraft := domain.FamilyDraft{Title: "Тренировка", Date: "2026-09-19", ParticipantIDs: []int64{child.ID}, Sport: &domain.SportSession{Activity: "Зал", Minutes: 45, Exercises: []domain.SportExercise{{Name: "Присед", Sets: 3, Reps: 10, WeightKg: 5}}}}
+	sport, err := app.CreateFamilyEntry(ctx, p, "sport", sportDraft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := sportDraft
+	foreign.ParticipantIDs = []int64{parent.ID}
+	if _, err := app.CreateFamilyEntry(ctx, c, "sport", foreign); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatal("child created foreign sport", err)
+	}
+	if _, err := app.EditFamilyEntry(ctx, c, sport.ID, sport.Version, foreign); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatal("child reassigned sport", err)
+	}
+	sportDraft.Description = "Самостоятельная запись"
+	updatedSport, err := app.EditFamilyEntry(ctx, c, sport.ID, sport.Version, sportDraft)
+	if err != nil {
+		t.Fatal("child cannot edit own parent-created sport", err)
+	}
+	if _, err := app.EditFamilyEntry(ctx, p, sport.ID, sport.Version, sportDraft); !errors.Is(err, domain.ErrConflict) {
+		t.Fatal("stale sport accepted", err)
+	}
+	if _, err := app.FamilyAction(ctx, c, sport.ID, domain.FamilyCommand{Version: updatedSport.Version, Action: "archive"}); err != nil {
+		t.Fatal(err)
+	}
 	backup, err := app.ExportBackup(ctx, p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if backup.Version != 2 || len(backup.FamilyEntries) != 6 {
+	if backup.Version != 2 || len(backup.FamilyEntries) != 7 {
 		t.Fatalf("backup missing family: %d", len(backup.FamilyEntries))
 	}
 	if err := app.ImportBackup(ctx, p, backup); err != nil {
@@ -125,6 +150,10 @@ func TestFamilyPostgresLifecycle(t *testing.T) {
 	all, err := s.ListFamilyEntries(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	restoredSport, err := s.GetFamilyEntry(ctx, sport.ID)
+	if err != nil || restoredSport.Sport == nil || restoredSport.Sport.Exercises[0].WeightKg != 5 || !restoredSport.Archived {
+		t.Fatal("backup lost sport", err)
 	}
 	foundPhoto := false
 	for _, item := range all {

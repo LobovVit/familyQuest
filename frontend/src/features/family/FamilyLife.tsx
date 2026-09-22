@@ -10,7 +10,7 @@ import './family.css'
 
 type View = 'today' | 'activities' | 'garden' | FamilyKind
 type Editor = { kind: FamilyKind; draft: FamilyDraft; entry?: FamilyEntry }
-const views: Array<{ id: View; label: string; icon: string }> = [{ id: 'today', label: 'Сегодня вместе', icon: '☀️' }, { id: 'activities', label: 'Чем займёмся?', icon: '🎲' }, ...Object.entries(kindLabels).map(([id, label]) => ({ id: id as FamilyKind, label, icon: kindIcons[id as FamilyKind] })), { id: 'garden', label: 'Наш сад', icon: '🌳' }]
+const views: Array<{ id: View; label: string; icon: string }> = [{ id: 'today', label: 'Сегодня вместе', icon: '☀️' }, { id: 'activities', label: 'Чем займёмся?', icon: '🎲' }, ...Object.entries(kindLabels).filter(([id]) => id !== 'sport').map(([id, label]) => ({ id: id as FamilyKind, label, icon: kindIcons[id as FamilyKind] })), { id: 'garden', label: 'Наш сад', icon: '🌳' }]
 export function FamilyLife({ current, participants, date }: { current: Participant; participants: Participant[]; date: string }) {
   const data = useFamilyLife()
   const [view, setView] = useState<View>('today')

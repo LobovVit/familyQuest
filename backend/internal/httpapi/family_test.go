@@ -39,6 +39,10 @@ func TestFamilyHTTPAccessAndInput(t *testing.T) {
 		{"school read", domain.RoleSchool, "GET", "/api/family", "", 403},
 		{"child read", domain.RoleChild, "GET", "/api/family", "", 200},
 		{"parent read", domain.RoleParent, "GET", "/api/family", "", 200},
+		{"child sport", domain.RoleChild, "POST", "/api/family", `{"kind":"sport","draft":{"title":"Бег","date":"2026-09-19","participantIds":[2],"sport":{"activity":"Бег","minutes":30,"distanceKm":5,"exercises":[]}}}`, 201},
+		{"child foreign sport", domain.RoleChild, "POST", "/api/family", `{"kind":"sport","draft":{"title":"Бег","date":"2026-09-19","participantIds":[3],"sport":{"activity":"Бег","minutes":30}}}`, 403},
+		{"school sport", domain.RoleSchool, "POST", "/api/family", `{"kind":"sport","draft":{"title":"Бег","date":"2026-09-19","participantIds":[2],"sport":{"activity":"Бег","minutes":30}}}`, 403},
+		{"sport negative duration", domain.RoleParent, "POST", "/api/family", `{"kind":"sport","draft":{"title":"Бег","date":"2026-09-19","participantIds":[2],"sport":{"activity":"Бег","minutes":-1}}}`, 400},
 		{"child idea", domain.RoleChild, "POST", "/api/family", `{"kind":"adventure","draft":{"title":"Идея","date":"2026-09-19","steps":[{"title":"План"}]}}`, 201},
 		{"forged author", domain.RoleChild, "POST", "/api/family", `{"kind":"memory","authorId":999,"draft":{"title":"A","date":"2026-09-19"}}`, 400},
 		{"forged approval", domain.RoleChild, "POST", "/api/family", `{"kind":"proposal","approved":true,"draft":{"title":"A","date":"2026-09-19"}}`, 400},
@@ -72,7 +76,7 @@ func TestFamilyHTTPAccessAndInput(t *testing.T) {
 				if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
 					t.Fatal(err)
 				}
-				if got.AuthorID != 2 || got.Approved || got.Kind != "proposal" {
+				if got.AuthorID != 2 || got.Approved || (got.Kind != "proposal" && got.Kind != "sport") {
 					t.Fatalf("wrong actor or approval: %+v", got)
 				}
 			}

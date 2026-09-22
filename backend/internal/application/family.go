@@ -21,6 +21,9 @@ func (s *Service) FamilyEntries(ctx context.Context, p domain.Principal) ([]doma
 	return s.repo.ListFamilyEntries(ctx)
 }
 func (s *Service) validateFamilyParticipants(ctx context.Context, e domain.FamilyEntry) error {
+	if e.Kind == "sport" && e.Date > time.Now().UTC().Add(24*time.Hour).Format("2006-01-02") {
+		return domain.ErrInvalidInput
+	}
 	if err := e.Validate(); err != nil {
 		return err
 	}
@@ -53,6 +56,9 @@ func (s *Service) CreateFamilyEntry(ctx context.Context, p domain.Principal, kin
 	// Children propose adventures; a parent agrees to the plan before execution.
 	if !p.IsParent() && kind == "adventure" {
 		e.Kind = "proposal"
+	}
+	if e.Kind == "sport" && !p.IsParent() && (len(e.ParticipantIDs) != 1 || e.ParticipantIDs[0] != p.ParticipantID) {
+		return e, domain.ErrForbidden
 	}
 	if err := s.validateFamilyParticipants(ctx, e); err != nil {
 		return e, err
@@ -88,6 +94,9 @@ func (s *Service) EditFamilyEntry(ctx context.Context, p domain.Principal, id in
 	e.FamilyDraft = draft
 	if e.Kind == "proposal" && !p.IsParent() {
 		e.Approved = false
+	}
+	if e.Kind == "sport" && !p.IsParent() && (len(e.ParticipantIDs) != 1 || e.ParticipantIDs[0] != p.ParticipantID) {
+		return e, domain.ErrForbidden
 	}
 	if err := s.validateFamilyParticipants(ctx, e); err != nil {
 		return e, err
