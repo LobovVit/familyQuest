@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/lobov/familyquest/backend/internal/application"
-	"github.com/lobov/familyquest/backend/internal/auth"
 	"github.com/lobov/familyquest/backend/internal/domain"
 )
 
@@ -33,8 +31,9 @@ func NewServer(service *application.Service, corsOrigin string) http.Handler {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-FamilyQuest, X-FamilyQuest-Confirmation")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -52,6 +51,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) routes() {
+	s.deviceRoutes()
 	s.familyRoutes()
 	s.learningRoutes()
 	s.mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +64,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/session", s.verifySession)
 	s.mux.HandleFunc("GET /api/participants", s.listParticipants)
 	s.mux.Handle("POST /api/participants", s.authorize(true, s.createParticipant))
-	s.mux.Handle("PUT /api/participants/", s.authorize(true, s.updateParticipantPIN))
+	s.mux.Handle("PUT /api/participants/", s.authorize(true, s.confirmed(s.updateParticipantPIN)))
 	s.mux.Handle("DELETE /api/participants/", s.authorize(true, s.deleteParticipant))
 	s.mux.Handle("GET /api/chores", s.authorize(false, s.listChores))
 	s.mux.Handle("POST /api/chores", s.authorize(true, s.createChore))
@@ -81,19 +81,14 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/rewards", s.authorize(true, s.createReward))
 	s.mux.Handle("DELETE /api/rewards/", s.authorize(true, s.deleteReward))
 	s.mux.Handle("GET /api/backup", s.authorize(true, s.exportBackup))
-	s.mux.Handle("POST /api/backup", s.authorize(true, s.importBackup))
+	s.mux.Handle("POST /api/backup", s.authorize(true, s.confirmed(s.importBackup)))
 }
 
 type principalKey struct{}
 
 func (s *Server) authorize(parentOnly bool, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, err := auth.Bearer(r.Header.Get("Authorization"))
-		if err != nil {
-			respond(w, nil, err)
-			return
-		}
-		p, err := s.store.ParseToken(r.Context(), token)
+		p, err := s.requestPrincipal(w, r)
 		if err != nil {
 			respond(w, nil, err)
 			return
@@ -102,7 +97,7 @@ func (s *Server) authorize(parentOnly bool, next http.HandlerFunc) http.Handler 
 			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+		next(w, withPrincipal(r, p))
 	})
 }
 func principal(r *http.Request) domain.Principal {
@@ -111,7 +106,15 @@ func principal(r *http.Request) domain.Principal {
 }
 
 func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
+	if !sameSiteRequest(r) {
+		respond(w, nil, domain.ErrForbidden)
+		return
+	}
 	var request struct {
+		Remember      bool   `json:"remember"`
+		DeviceName    string `json:"deviceName"`
+		ParentID      int64  `json:"parentId"`
+		ParentPIN     string `json:"parentPin"`
 		ParticipantID int64  `json:"participantId"`
 		PIN           string `json:"pin"`
 	}
@@ -124,7 +127,27 @@ func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	participant, token, err := s.store.Authenticate(r.Context(), request.ParticipantID, request.PIN)
-	respond(w, map[string]any{"participant": participant, "token": token}, err)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	var secret, deviceID string
+	if request.Remember {
+		var d domain.TrustedDevice
+		secret, d, err = s.store.RememberDevice(r.Context(), participant, request.DeviceName, request.ParentID, request.ParentPIN)
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		deviceID = d.ID
+		token = ""
+	}
+	if err = s.store.ForgetDevice(r.Context(), cookieValue(r)); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	setDeviceCookie(w, r, secret)
+	respond(w, map[string]any{"participant": participant, "token": token, "remembered": request.Remember, "deviceId": deviceID}, nil)
 }
 
 func (s *Server) listParticipants(w http.ResponseWriter, r *http.Request) {

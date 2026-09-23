@@ -11,6 +11,7 @@ import (
 
 // Repository is the persistence port consumed by application use cases.
 type Repository interface {
+	DeviceRepository
 	LearningRepository
 	FamilyRepository
 	Ping(context.Context) error
@@ -43,6 +44,7 @@ type Repository interface {
 // Tokens is the authentication port consumed by use cases.
 type Tokens interface {
 	Issue(domain.Participant) (string, error)
+	IssueConfirmation(domain.Principal) (string, error)
 	Parse(string) (domain.Principal, error)
 }
 
@@ -68,6 +70,9 @@ func (s *Service) ParseToken(c context.Context, token string) (domain.Principal,
 	p, err := s.tokens.Parse(token)
 	if err != nil {
 		return domain.Principal{}, err
+	}
+	if p.ConfirmedUntil != 0 {
+		return domain.Principal{}, domain.ErrUnauthorized
 	}
 	participant, err := s.repo.GetParticipant(c, p.ParticipantID)
 	if err != nil {

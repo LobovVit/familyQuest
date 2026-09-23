@@ -1,3 +1,7 @@
+import { useParentConfirmation } from '../application/useParentConfirmation'
+import { ParentConfirmation } from './session/ParentConfirmation'
+import { Devices } from './session/Devices'
+import type { LoginOptions } from '../domain/devices'
 import { MathTraining } from './learning/MathTraining'
 import { ActivityRewards } from './learning/ActivityRewards'
 import { FamilyOverview } from './overview/FamilyOverview'
@@ -46,6 +50,8 @@ export function FamilyQuestWorkspace() {
   const [isBackupBusy, setIsBackupBusy] = useState(false)
   const [error, setError] = useState('')
   const { participant: currentParticipant, login: establishSession, logout } = useSession()
+  const confirmation = useParentConfirmation()
+  const [loginOptions,setLoginOptions] = useState<LoginOptions>({remember:false,deviceName:''})
   const [pinPrompt, setPinPrompt] = useState<PinPrompt | null>(null)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isCheckingPin, setIsCheckingPin] = useState(false)
@@ -103,11 +109,12 @@ export function FamilyQuestWorkspace() {
     }
     setError('')
     setIsUserMenuOpen(false)
+    setLoginOptions({remember:false,deviceName:`Устройство · ${participant.name}`,parentId:participants.find(p=>p.role==='parent')?.id,parentPin:''})
     setPinPrompt({ participant, pin: '' })
   }
 
-  function enterViewMode() {
-    logout()
+  async function enterViewMode() {
+    try { await logout() } catch { setError('Не удалось выйти. Проверьте соединение и повторите.'); return }
     setError('')
     setIsUserMenuOpen(false)
   }
@@ -131,9 +138,10 @@ export function FamilyQuestWorkspace() {
     setIsCheckingPin(true)
     setError('')
     try {
-      const session = await actions.login(pinPrompt.participant.id, pinPrompt.pin)
+      const session = await actions.login(pinPrompt.participant.id, pinPrompt.pin, loginOptions)
       establishSession(session)
       setPinPrompt(null)
+      setLoginOptions({remember:false,deviceName:''})
     } catch (pinError) {
       setError(pinError instanceof Error ? pinError.message : 'Неверный PIN')
     } finally {
@@ -334,7 +342,10 @@ export function FamilyQuestWorkspace() {
     }
     setError('')
     try {
-      await actions.changePin(participant.id, pinEdit.pin)
+      const proof = await confirmation.ask()
+      if (!proof) return
+      await actions.changePin(participant.id, pinEdit.pin, proof)
+      if (participant.id === currentParticipant?.id) await enterViewMode()
       setPinEdit(null)
     } catch (pinError) {
       setError(pinError instanceof Error ? pinError.message : 'Не удалось изменить PIN')
@@ -425,8 +436,10 @@ export function FamilyQuestWorkspace() {
     setIsBackupBusy(true)
     setError('')
     try {
-      await restoreBackup(file)
-      enterViewMode()
+      const proof = await confirmation.ask()
+      if (!proof) return
+      await restoreBackup(file, proof)
+      await enterViewMode()
       await data.loadParticipants()
       await data.refresh()
     } catch (backupError) {
@@ -485,7 +498,8 @@ export function FamilyQuestWorkspace() {
 
       {error && <p className="notice">{error}</p>}
 
-      {pinPrompt && <PinDialog participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
+      {<ParentConfirmation confirmation={confirmation} />}
+      {pinPrompt && <PinDialog participants={participants} options={loginOptions} onOptions={setLoginOptions} error={error} participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
 
       {activeTab === 'day' && <Planner participant={currentParticipant} participants={participants} tasks={tasks} filteredTasks={filteredTasks} reviewTasks={tasksForReview} assignments={assignments} ratings={behaviorRatings} day={dayLeaderboard} week={weekLeaderboard} month={monthLeaderboard} date={selectedDate} loading={isLoading} busyTask={busyTask} busyBehavior={busyBehavior} controls={renderPlanControls()} onComplete={completeTask} onConfirm={confirmTask} onRate={rateBehavior} />}
 
@@ -501,6 +515,7 @@ export function FamilyQuestWorkspace() {
 
       {currentParticipant?.role === 'parent' && activeTab === 'catalog' && <Catalog chores={chores} editingId={editingChoreId} onAdd={startNewChore} onEdit={startEditChore} newEditor={<ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} editor={() => <ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} />}
 
+      {currentParticipant?.role === 'parent' && activeTab === 'users' && <Devices confirm={confirmation.ask} onCurrentRevoked={() => { void enterViewMode() }} />}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Settings participants={participants} tasks={tasks} rewards={rewards} pinEdit={pinEdit} setPinEdit={setPinEdit} newParticipant={newParticipant} setNewParticipant={setNewParticipant} newReward={newReward} setNewReward={setNewReward} backupBusy={isBackupBusy} onSavePin={saveParticipantPIN} onDeleteParticipant={deleteParticipant} onCreateParticipant={createParticipant} onExport={exportBackup} onImport={importBackup} onDeleteReward={deleteReward} onCreateReward={createReward} onToggleRewardParticipant={toggleRewardParticipant} />}
     </main>
   )

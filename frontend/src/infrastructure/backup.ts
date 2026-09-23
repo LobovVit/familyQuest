@@ -7,6 +7,6 @@ export async function downloadBackup(date:string): Promise<void> {
   link.href = url; link.download = `familyquest-backup-${date}.json`; document.body.appendChild(link); link.click(); link.remove()
   URL.revokeObjectURL(url)
 }
-export async function restoreBackup(file:File): Promise<void> {
-  await api('/api/backup', { method:'POST', body:await file.text() })
+export async function restoreBackup(file:File, proof?:string): Promise<void> {
+  await api('/api/backup', { method:'POST', body:await file.text(), headers:{'X-FamilyQuest-Confirmation':proof ?? ''} })
 }

@@ -20,10 +20,12 @@ type Tokens struct {
 	now    func() time.Time
 }
 type claims struct {
-	Version int64  `json:"ver"`
-	Subject string `json:"sub"`
-	Role    string `json:"role"`
-	Expires int64  `json:"exp"`
+	DeviceID       string `json:"device,omitempty"`
+	ConfirmedUntil int64  `json:"confirmedUntil,omitempty"`
+	Version        int64  `json:"ver"`
+	Subject        string `json:"sub"`
+	Role           string `json:"role"`
+	Expires        int64  `json:"exp"`
 }
 
 func New(secret string, ttl time.Duration) (*Tokens, error) {
@@ -36,8 +38,15 @@ func New(secret string, ttl time.Duration) (*Tokens, error) {
 	return &Tokens{secret: []byte(secret), ttl: ttl, now: time.Now}, nil
 }
 func (t *Tokens) Issue(p domain.Participant) (string, error) {
+	return t.issue(claims{Version: p.SessionVersion, Subject: strconv.FormatInt(p.ID, 10), Role: p.Role, Expires: t.now().Add(t.ttl).Unix()})
+}
+func (t *Tokens) IssueConfirmation(p domain.Principal) (string, error) {
+	expires := t.now().Add(5 * time.Minute).Unix()
+	return t.issue(claims{Version: p.SessionVersion, Subject: strconv.FormatInt(p.ParticipantID, 10), Role: p.Role, Expires: expires, ConfirmedUntil: expires, DeviceID: p.DeviceID})
+}
+func (t *Tokens) issue(c claims) (string, error) {
 	h := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	b, err := json.Marshal(claims{Version: p.SessionVersion, Subject: strconv.FormatInt(p.ID, 10), Role: p.Role, Expires: t.now().Add(t.ttl).Unix()})
+	b, err := json.Marshal(c)
 	if err != nil {
 		return "", err
 	}
@@ -70,7 +79,7 @@ func (t *Tokens) Parse(token string) (domain.Principal, error) {
 	if err != nil || id <= 0 || domain.ValidateRole(c.Role) != nil {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
-	return domain.Principal{ParticipantID: id, Role: c.Role, SessionVersion: c.Version}, nil
+	return domain.Principal{ParticipantID: id, Role: c.Role, SessionVersion: c.Version, DeviceID: c.DeviceID, ConfirmedUntil: c.ConfirmedUntil}, nil
 }
 func Bearer(header string) (string, error) {
 	p := strings.Fields(header)

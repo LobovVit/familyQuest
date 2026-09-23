@@ -35,3 +35,21 @@ func TestExpiredTokenRejected(t *testing.T) {
 		t.Fatal("expired token accepted")
 	}
 }
+
+func TestConfirmationBoundToDeviceAndExpires(t *testing.T) {
+	tokens, _ := New("01234567890123456789012345678901", 12*time.Hour)
+	now := time.Now()
+	tokens.now = func() time.Time { return now }
+	proof, err := tokens.IssueConfirmation(domain.Principal{ParticipantID: 1, Role: domain.RoleParent, DeviceID: "ipad", SessionVersion: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := tokens.Parse(proof)
+	if err != nil || p.DeviceID != "ipad" || p.SessionVersion != 7 || p.ConfirmedUntil != now.Add(5*time.Minute).Unix() {
+		t.Fatal("proof claims", p, err)
+	}
+	tokens.now = func() time.Time { return now.Add(5 * time.Minute) }
+	if _, err = tokens.Parse(proof); err == nil {
+		t.Fatal("expired confirmation accepted")
+	}
+}

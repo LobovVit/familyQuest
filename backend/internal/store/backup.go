@@ -69,7 +69,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	defer tx.Rollback(ctx)
 
 	// Lock before reading credentials so a concurrent PIN update cannot be lost.
-	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards in access exclusive mode`); err != nil {
+	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards, trusted_devices in access exclusive mode`); err != nil {
 		return err
 	}
 
@@ -101,7 +101,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	rows.Close()
 
-	if _, err := tx.Exec(ctx, `truncate math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
+	if _, err := tx.Exec(ctx, `truncate trusted_devices, math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
 		return err
 	}
 	for _, item := range backup.Participants {

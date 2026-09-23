@@ -20,8 +20,9 @@ func (r testRepository) GetParticipant(context.Context, int64) (domain.Participa
 
 type testTokens struct{ principal domain.Principal }
 
-func (t testTokens) Issue(domain.Participant) (string, error) { return "token", nil }
-func (t testTokens) Parse(string) (domain.Principal, error)   { return t.principal, nil }
+func (t testTokens) IssueConfirmation(domain.Principal) (string, error) { return "proof", nil }
+func (t testTokens) Issue(domain.Participant) (string, error)           { return "token", nil }
+func (t testTokens) Parse(string) (domain.Principal, error)             { return t.principal, nil }
 func TestSessionRechecksParticipant(t *testing.T) {
 	for _, tc := range []struct {
 		name string

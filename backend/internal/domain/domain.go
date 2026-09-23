@@ -12,6 +12,8 @@ const (
 )
 
 type Principal struct {
+	DeviceID       string
+	ConfirmedUntil int64
 	SessionVersion int64
 	ParticipantID  int64
 	Role           string

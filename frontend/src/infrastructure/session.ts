@@ -1,7 +1,13 @@
 import type { LoginResponse, Participant } from '../domain/models'
 
+const DEVICE_KEY = 'familyquest.session.device'
+const CHANGE_KEY = 'familyquest.session.change'
+const publish = () => { try { localStorage.setItem(CHANGE_KEY, String(Date.now()) + Math.random()) } catch { /* private storage may be unavailable */ } }
+if (typeof window !== 'undefined') window.addEventListener('storage', e => { if (e.key === CHANGE_KEY) { clearSession(); window.location.reload() } })
 const TOKEN_KEY = 'familyquest.session.token'
 const PARTICIPANT_KEY = 'familyquest.session.participant'
+let generation = 0
+export const getSessionGeneration = () => generation
 const listeners = new Set<() => void>()
 let cachedValue: string | null = null
 let cachedParticipant: Participant | null = null
@@ -10,14 +16,18 @@ export function subscribe(listener: () => void): () => void {
  listeners.add(listener)
  return () => { listeners.delete(listener) }
 }
-export function saveSession(session: LoginResponse): void {
+export function saveSession(session: LoginResponse, broadcast = true): void {
+ generation++
  sessionStorage.setItem(TOKEN_KEY, session.token)
+ if (session.remembered) sessionStorage.setItem(DEVICE_KEY, session.deviceId ?? 'remembered')
+ else sessionStorage.removeItem(DEVICE_KEY)
  sessionStorage.setItem(PARTICIPANT_KEY, JSON.stringify(session.participant))
  notify()
+ if (broadcast) publish()
 }
 export const getToken = (): string | null => sessionStorage.getItem(TOKEN_KEY)
 export function getParticipant(): Participant | null {
- const value = getToken() ? sessionStorage.getItem(PARTICIPANT_KEY) : null
+ const value = (getToken() || sessionStorage.getItem(DEVICE_KEY)) ? sessionStorage.getItem(PARTICIPANT_KEY) : null
  if (value === cachedValue) return cachedParticipant
  cachedValue = value
  cachedParticipant = null
@@ -29,8 +39,11 @@ export function getParticipant(): Participant | null {
  }
  return cachedParticipant
 }
-export function clearSession(): void {
+export function clearSession(broadcast = false): void {
+ generation++
+ sessionStorage.removeItem(DEVICE_KEY)
  sessionStorage.removeItem(TOKEN_KEY)
  sessionStorage.removeItem(PARTICIPANT_KEY)
  notify()
+ if (broadcast) publish()
 }

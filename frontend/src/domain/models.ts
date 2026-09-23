@@ -14,4 +14,4 @@ export type BehaviorRating = { id:number; ratedDate:string; raterParticipantId:n
 export type RewardPeriod = 'day' | 'week' | 'month'
 export type RewardType = 'champion' | 'stars' | 'smiles'
 export type Reward = { id:number; title:string; description:string; period:RewardPeriod; rewardType:RewardType; starCost:number; smileCost:number; participantIds:number[]; participantNames:string[] }
-export type LoginResponse = { participant: Participant; token: string }
+export type LoginResponse = { participant: Participant; token: string; remembered?: boolean; deviceId?: string }

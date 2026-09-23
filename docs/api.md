@@ -46,3 +46,22 @@
 Другой ребёнок не может читать/изменять чужое занятие. Школьная роль доступа не имеет.
 
 Правильный ответ в новых занятиях приносит 1–5 ⭐ по сложности, операции и способу ввода, но не более 30 ⭐ суммарно за день (Europe/Minsk). `feedback.correct=true` совместим с `feedback.stars=0` при исчерпании бюджета. Последний бонус может быть частичным. Лимит общий для всех занятий и устройств; завершение и повторное создание занятия его не сбрасывают. Backup v4 хранит `mathSessions[].rewardVersion=2`; в v3 поле отсутствует и действует прежняя шкала.
+
+### Устройства и подтверждение родителя
+
+- `POST /session`: `{participantId,pin,remember?,deviceName?,parentId?,parentPin?}`.
+  При `remember=true` возвращает `{participant,token:"",remembered:true,deviceId}` и
+  устанавливает HttpOnly-cookie. У ребёнка обязательны `parentId,parentPin`.
+  Без запоминания возвращается временный bearer; старая cookie-привязка отзывается.
+- `GET /session`: проверяет текущий bearer или cookie и возвращает профиль.
+- `POST /session/logout`: отзывает cookie этого браузера, удаляет cookie; клиент
+  дополнительно удаляет временный bearer. Идемпотентный выход не требует действующей сессии.
+- `POST /session/confirm`: текущий parent, `{pin}` → `{proof}` на 5 минут.
+- `GET /devices`: parent; активные устройства семьи без секретов, поле `current`.
+- `DELETE /devices/{id}`: parent + `X-FamilyQuest-Confirmation: proof`; отзыв только указанного устройства.
+
+Заголовок `X-FamilyQuest: 1` обязателен для cookie-входа и маршрутов входа/выхода/
+подтверждения. Origin должен соответствовать Host. Все API-ответы имеют `Cache-Control:
+no-store`. На смене PIN и POST /backup обязателен `X-FamilyQuest-Confirmation`;
+без актуального подтверждения возвращается 403. PIN-подтверждение не является
+токеном входа. При 401 от /session/confirm текущая сессия не сбрасывается.

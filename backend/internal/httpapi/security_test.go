@@ -49,7 +49,7 @@ func TestCORSAllowsAuthorization(t *testing.T) {
 	r := httptest.NewRequest(http.MethodOptions, "/api/tasks", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Header().Get("Access-Control-Allow-Headers") != "Content-Type, Authorization" {
+	if w.Header().Get("Access-Control-Allow-Headers") != "Content-Type, Authorization, X-FamilyQuest, X-FamilyQuest-Confirmation" {
 		t.Fatal("authorization header is not allowed")
 	}
 }
@@ -130,5 +130,23 @@ func TestHTTPValidationAndErrorSanitization(t *testing.T) {
 	var value any
 	if err := decodeJSON(r, &value); err == nil {
 		t.Fatal("multiple JSON documents accepted")
+	}
+}
+
+func TestSessionCSRFBoundary(t *testing.T) {
+	h, _ := testServer(t)
+	for _, path := range []string{"/api/session", "/api/session/logout"} {
+		for _, origin := range []string{"https://evil.example", "null", ""} {
+			r := httptest.NewRequest("POST", "https://family.test"+path, strings.NewReader(`{}`))
+			r.Header.Set("Origin", origin)
+			if origin != "" {
+				r.Header.Set("X-FamilyQuest", "1")
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != 403 {
+				t.Fatalf("accepted CSRF %s origin=%s status=%d", path, origin, w.Code)
+			}
+		}
 	}
 }
