@@ -27,7 +27,7 @@ func (s *Service) StartMath(ctx context.Context, p domain.Principal, settings do
 	if _, err := rand.Read(id[:]); err != nil {
 		return domain.MathView{}, err
 	}
-	saved, err := s.repo.CreateMathSession(ctx, domain.NewMathSession(hex.EncodeToString(id[:]), p.ParticipantID, settings, time.Now()))
+	saved, err := s.repo.CreateMathSession(ctx, domain.NewMathSession(hex.EncodeToString(id[:]), p.ParticipantID, settings, s.now()))
 	return saved.View(), err
 }
 func (s *Service) MathSessions(ctx context.Context, p domain.Principal) ([]domain.MathView, error) {
@@ -48,7 +48,7 @@ func (s *Service) AnswerMath(ctx context.Context, p domain.Principal, id string,
 	if p.ParticipantID <= 0 || p.Role != domain.RoleChild {
 		return domain.MathView{}, domain.ErrForbidden
 	}
-	session, err := s.repo.AnswerMath(ctx, p.ParticipantID, id, index, values, time.Now())
+	session, err := s.repo.AnswerMath(ctx, p.ParticipantID, id, index, values, s.now())
 	return session.View(), err
 }
 func (s *Service) ActivityRewards(ctx context.Context, p domain.Principal) ([]domain.ActivityReward, error) {

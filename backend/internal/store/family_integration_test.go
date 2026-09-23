@@ -137,7 +137,7 @@ func TestFamilyPostgresLifecycle(t *testing.T) {
 	if backup.Version != application.BackupVersion || len(backup.FamilyEntries) != 7 {
 		t.Fatalf("backup missing family: %d", len(backup.FamilyEntries))
 	}
-	if err := app.ImportBackup(ctx, p, backup); err != nil {
+	if err := s.ImportBackup(ctx, backup); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := s.GetFamilyEntry(ctx, e.ID)
@@ -167,7 +167,7 @@ func TestFamilyPostgresLifecycle(t *testing.T) {
 	invalid := backup
 	invalid.FamilyEntries = append([]domain.FamilyEntry{}, backup.FamilyEntries...)
 	invalid.FamilyEntries[0].AuthorID = 999999
-	if err := app.ImportBackup(ctx, p, invalid); !errors.Is(err, domain.ErrInvalidInput) {
+	if err := s.ImportBackup(ctx, invalid); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatal("invalid backup accepted", err)
 	}
 	if _, err := s.GetFamilyEntry(ctx, e.ID); err != nil {
@@ -178,7 +178,7 @@ func TestFamilyPostgresLifecycle(t *testing.T) {
 	backup.FamilyEntries = nil
 	backup.MathSessions = nil
 	backup.ActivityRewards = nil
-	if err := app.ImportBackup(ctx, p, backup); err != nil {
+	if err := s.ImportBackup(ctx, backup); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := s.ListFamilyEntries(ctx)

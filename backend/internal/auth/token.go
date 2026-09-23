@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -80,11 +79,4 @@ func (t *Tokens) Parse(token string) (domain.Principal, error) {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
 	return domain.Principal{ParticipantID: id, Role: c.Role, SessionVersion: c.Version, DeviceID: c.DeviceID, ConfirmedUntil: c.ConfirmedUntil}, nil
-}
-func Bearer(header string) (string, error) {
-	p := strings.Fields(header)
-	if len(p) != 2 || !strings.EqualFold(p[0], "Bearer") || p[1] == "" {
-		return "", fmt.Errorf("%w", domain.ErrUnauthorized)
-	}
-	return p[1], nil
 }

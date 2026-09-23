@@ -105,6 +105,24 @@ func TestTrustedDevicesHTTPIntegration(t *testing.T) {
 	w = login(parent.ID, "739281", "Parent iPad", 0, "", nil)
 	assert(w, 200)
 	parentCookie := w.Result().Cookies()[0]
+	// Force the second half of replacement to fail; neither half may commit.
+	w = login(parent.ID, "739281", "Rollback sentinel", 0, "", nil)
+	assert(w, 200)
+	sentinel := w.Result().Cookies()[0]
+	if _, err = s.pool.Exec(ctx, `alter table trusted_devices add constraint test_no_revoke check(name<>'Rollback sentinel' or revoked_at is null)`); err != nil {
+		t.Fatal(err)
+	}
+	assert(login(parent.ID, "739281", "Must roll back", 0, "", sentinel), 500)
+	assert(call("GET", "/api/session", nil, sentinel, "", "", ""), 200)
+	var replacements int
+	if err = s.pool.QueryRow(ctx, `select count(*) from trusted_devices where name='Must roll back'`).Scan(&replacements); err != nil || replacements != 0 {
+		t.Fatal("replacement was partly committed", err)
+	}
+	if _, err = s.pool.Exec(ctx, `alter table trusted_devices drop constraint test_no_revoke`); err != nil {
+		t.Fatal(err)
+	}
+	assert(call("POST", "/api/session/logout", map[string]string{}, sentinel, "", "", ""), 200)
+
 	w = call("GET", "/api/devices", nil, parentCookie, "", "", "")
 	assert(w, 200)
 	var devices []domain.TrustedDevice

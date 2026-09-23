@@ -24,7 +24,7 @@ export interface FamilyQuestGateway {
  tasks(date: string): Promise<Task[]>
  leaderboard(period: RewardPeriod, date: string): Promise<LeaderboardEntry[]>
  ratings(date: string): Promise<BehaviorRating[]>
- restoreSession(): Promise<LoginResponse>
+ restoreSession(): Promise<LoginResponse | null>
  logout(): Promise<unknown>
  confirmParent(pin: string): Promise<{proof: string}>
  devices(): Promise<TrustedDevice[]>

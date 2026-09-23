@@ -150,7 +150,7 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	if backup.Version != application.BackupVersion || len(backup.MathSessions) != 1 || len(backup.ActivityRewards) != 5 {
 		t.Fatal("incomplete backup", len(backup.ActivityRewards))
 	}
-	if err = app.ImportBackup(ctx, p, backup); err != nil {
+	if err = s.ImportBackup(ctx, backup); err != nil {
 		t.Fatal("restore", err)
 	}
 	restored, err := s.ListMathSessions(ctx, child.ID)
@@ -167,13 +167,13 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	invalid := backup
 	invalid.ActivityRewards = append([]domain.ActivityReward{}, backup.ActivityRewards...)
 	invalid.ActivityRewards[0].Stars = 999
-	if err = app.ImportBackup(ctx, p, invalid); !errors.Is(err, domain.ErrInvalidInput) {
+	if err = s.ImportBackup(ctx, invalid); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatal("forged reward accepted", err)
 	}
 	backup.Version = 2
 	backup.MathSessions = nil
 	backup.ActivityRewards = nil
-	if err = app.ImportBackup(ctx, p, backup); err != nil {
+	if err = s.ImportBackup(ctx, backup); err != nil {
 		t.Fatal("legacy restore", err)
 	}
 	restored, err = s.ListMathSessions(ctx, child.ID)
@@ -227,7 +227,7 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = app.ImportBackup(ctx, p, balanced); err != nil {
+	if err = s.ImportBackup(ctx, balanced); err != nil {
 		t.Fatal("capped reward restore", err)
 	}
 

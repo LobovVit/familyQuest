@@ -376,3 +376,17 @@ func (s MathSession) Validate() error {
 	}
 	return nil
 }
+
+// AwardAnswer applies policy to a newly recorded answer. The repository supplies
+// the daily total while holding the participant lock, then persists both changes.
+func (s *MathSession) AwardAnswer(index, earned int) *ActivityReward {
+	a := s.Answers[index]
+	if s.RewardVersion == 2 {
+		a.Stars = min(a.Stars, max(0, MathDailyStarLimit-earned))
+		s.Answers[index] = a
+	}
+	if a.Stars == 0 {
+		return nil
+	}
+	return &ActivityReward{Source: "math", SourceKey: fmt.Sprintf("%s:%d", s.ID, index), ParticipantID: s.ParticipantID, Date: a.Date, Stars: a.Stars, Title: "Математика " + s.Settings.Operation}
+}

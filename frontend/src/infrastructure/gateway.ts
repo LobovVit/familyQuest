@@ -1,5 +1,5 @@
 import type { FamilyQuestGateway } from '../application/ports'
-import { api } from './apiClient'
+import { api, ApiError } from './apiClient'
 
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
 export const gateway: FamilyQuestGateway = {
@@ -21,7 +21,7 @@ export const gateway: FamilyQuestGateway = {
  tasks: date => api(`/api/tasks?date=${date}`),
  leaderboard: (period, date) => api(`/api/leaderboard?period=${period}&date=${date}`),
  ratings: date => api(`/api/behavior-ratings?date=${date}`),
- restoreSession: () => api('/api/session'),
+ restoreSession: () => api<import('../domain/models').LoginResponse>('/api/session').catch(error => { if (error instanceof ApiError && error.status === 401) return null; throw error }),
  logout: () => api('/api/session/logout', post({})),
  confirmParent: pin => api('/api/session/confirm', post({pin})),
  devices: () => api('/api/devices'),

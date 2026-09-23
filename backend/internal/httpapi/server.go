@@ -64,7 +64,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/session", s.verifySession)
 	s.mux.HandleFunc("GET /api/participants", s.listParticipants)
 	s.mux.Handle("POST /api/participants", s.authorize(true, s.createParticipant))
-	s.mux.Handle("PUT /api/participants/", s.authorize(true, s.confirmed(s.updateParticipantPIN)))
+	s.mux.Handle("PUT /api/participants/", s.authorize(true, s.updateParticipantPIN))
 	s.mux.Handle("DELETE /api/participants/", s.authorize(true, s.deleteParticipant))
 	s.mux.Handle("GET /api/chores", s.authorize(false, s.listChores))
 	s.mux.Handle("POST /api/chores", s.authorize(true, s.createChore))
@@ -81,7 +81,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/rewards", s.authorize(true, s.createReward))
 	s.mux.Handle("DELETE /api/rewards/", s.authorize(true, s.deleteReward))
 	s.mux.Handle("GET /api/backup", s.authorize(true, s.exportBackup))
-	s.mux.Handle("POST /api/backup", s.authorize(true, s.confirmed(s.importBackup)))
+	s.mux.Handle("POST /api/backup", s.authorize(true, s.importBackup))
 }
 
 type principalKey struct{}
@@ -110,44 +110,19 @@ func (s *Server) verifySession(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, domain.ErrForbidden)
 		return
 	}
-	var request struct {
-		Remember      bool   `json:"remember"`
-		DeviceName    string `json:"deviceName"`
-		ParentID      int64  `json:"parentId"`
-		ParentPIN     string `json:"parentPin"`
-		ParticipantID int64  `json:"participantId"`
-		PIN           string `json:"pin"`
-	}
+	var request application.LoginInput
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if len(request.PIN) != 6 {
-		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
-		return
-	}
-	participant, token, err := s.store.Authenticate(r.Context(), request.ParticipantID, request.PIN)
+	request.PreviousSecret = cookieValue(r)
+	result, err := s.store.Login(r.Context(), request)
 	if err != nil {
 		respond(w, nil, err)
 		return
 	}
-	var secret, deviceID string
-	if request.Remember {
-		var d domain.TrustedDevice
-		secret, d, err = s.store.RememberDevice(r.Context(), participant, request.DeviceName, request.ParentID, request.ParentPIN)
-		if err != nil {
-			respond(w, nil, err)
-			return
-		}
-		deviceID = d.ID
-		token = ""
-	}
-	if err = s.store.ForgetDevice(r.Context(), cookieValue(r)); err != nil {
-		respond(w, nil, err)
-		return
-	}
-	setDeviceCookie(w, r, secret)
-	respond(w, map[string]any{"participant": participant, "token": token, "remembered": request.Remember, "deviceId": deviceID}, nil)
+	setDeviceCookie(w, r, result.DeviceSecret)
+	respond(w, result, nil)
 }
 
 func (s *Server) listParticipants(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +179,7 @@ func (s *Server) updateParticipantPIN(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "pin must contain 6 digits")
 		return
 	}
-	participant, err := s.store.UpdateParticipantPIN(r.Context(), principal(r), id, request.PIN)
+	participant, err := s.store.UpdateParticipantPIN(r.Context(), principal(r), id, request.PIN, r.Header.Get("X-FamilyQuest-Confirmation"))
 	respond(w, participant, err)
 }
 
@@ -405,7 +380,7 @@ func (s *Server) importBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid backup JSON")
 		return
 	}
-	if err := s.store.ImportBackup(r.Context(), principal(r), backup); err != nil {
+	if err := s.store.ImportBackup(r.Context(), principal(r), backup, r.Header.Get("X-FamilyQuest-Confirmation")); err != nil {
 		respond(w, nil, err)
 		return
 	}

@@ -103,3 +103,25 @@ func TestBalancedMathRewards(t *testing.T) {
 		t.Fatal("legacy reward changed")
 	}
 }
+
+func TestMathRewardBudgetPolicy(t *testing.T) {
+	settings := MathSettings{Operation: "*", Level: "columnar", AnswerMode: "input", DivisionMode: "full"}
+	for _, earned := range []int{28, 30, 50} {
+		session := NewMathSession("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 2, settings, time.Now())
+		_, answer := session.Questions[0].Work(settings)
+		if err := session.Submit(0, answer, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		reward := session.AwardAnswer(0, earned)
+		if earned == 28 {
+			if reward == nil || reward.Stars != 2 || session.Answers[0].Stars != 2 {
+				t.Fatal("partial budget")
+			}
+		} else if reward != nil || session.Answers[0].Stars != 0 {
+			t.Fatal("budget exceeded")
+		}
+		if !session.Answers[0].Correct {
+			t.Fatal("cap changed correctness")
+		}
+	}
+}

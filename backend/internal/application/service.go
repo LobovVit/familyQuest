@@ -51,10 +51,13 @@ type Tokens interface {
 type Service struct {
 	repo   Repository
 	tokens Tokens
+	now    func() time.Time
 }
 
-func New(repo Repository, tokens Tokens) *Service { return &Service{repo: repo, tokens: tokens} }
-func (s *Service) Ready(c context.Context) error  { return s.repo.Ping(c) }
+func New(repo Repository, tokens Tokens) *Service {
+	return &Service{repo: repo, tokens: tokens, now: time.Now}
+}
+func (s *Service) Ready(c context.Context) error { return s.repo.Ping(c) }
 func (s *Service) Authenticate(c context.Context, id int64, pin string) (domain.Participant, string, error) {
 	if err := domain.ValidatePIN(pin); err != nil {
 		return domain.Participant{}, "", err
@@ -113,7 +116,10 @@ func (s *Service) DeleteParticipant(c context.Context, actor domain.Principal, i
 
 	return s.repo.DeleteParticipant(c, id)
 }
-func (s *Service) UpdateParticipantPIN(c context.Context, actor domain.Principal, id int64, pin string) (domain.Participant, error) {
+func (s *Service) UpdateParticipantPIN(c context.Context, actor domain.Principal, id int64, pin, proof string) (domain.Participant, error) {
+	if err := s.CheckConfirmation(c, actor, proof); err != nil {
+		return domain.Participant{}, err
+	}
 	if !actor.IsParent() {
 		return domain.Participant{}, domain.ErrForbidden
 	}
@@ -241,7 +247,10 @@ func (s *Service) ExportBackup(c context.Context, actor domain.Principal) (Backu
 	}
 	return s.repo.ExportBackup(c)
 }
-func (s *Service) ImportBackup(c context.Context, actor domain.Principal, b BackupData) error {
+func (s *Service) ImportBackup(c context.Context, actor domain.Principal, b BackupData, proof string) error {
+	if err := s.CheckConfirmation(c, actor, proof); err != nil {
+		return err
+	}
 	if !actor.IsParent() {
 		return domain.ErrForbidden
 	}

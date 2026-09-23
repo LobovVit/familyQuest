@@ -51,14 +51,14 @@ func TestMutationsRequireParentAtApplicationBoundary(t *testing.T) {
 		calls := []func() error{
 			func() error { _, e := s.CreateParticipant(ctx, actor, domain.Participant{}, "123456"); return e },
 			func() error { return s.DeleteParticipant(ctx, actor, 1) },
-			func() error { _, e := s.UpdateParticipantPIN(ctx, actor, 1, "123456"); return e },
+			func() error { _, e := s.UpdateParticipantPIN(ctx, actor, 1, "123456", ""); return e },
 			func() error { _, e := s.CreateChore(ctx, actor, domain.Chore{}); return e },
 			func() error { _, e := s.UpdateChore(ctx, actor, domain.Chore{}); return e },
 			func() error { _, e := s.CreateAssignment(ctx, actor, 1, 1); return e },
 			func() error { _, e := s.CreateReward(ctx, actor, domain.Reward{}); return e },
 			func() error { return s.DeleteReward(ctx, actor, 1) },
 			func() error { _, e := s.ExportBackup(ctx, actor); return e },
-			func() error { return s.ImportBackup(ctx, actor, BackupData{}) },
+			func() error { return s.ImportBackup(ctx, actor, BackupData{}, "") },
 			func() error { _, e := s.ConfirmTask(ctx, actor, 1, 5, ""); return e },
 		}
 		for i, call := range calls {

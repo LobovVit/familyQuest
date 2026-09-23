@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/lobov/familyquest/backend/internal/auth"
 	"github.com/lobov/familyquest/backend/internal/domain"
 )
 
@@ -52,7 +51,7 @@ func sameSiteRequest(r *http.Request) bool {
 }
 func (s *Server) requestPrincipal(w http.ResponseWriter, r *http.Request) (domain.Principal, error) {
 	if r.Header.Get("Authorization") != "" {
-		token, err := auth.Bearer(r.Header.Get("Authorization"))
+		token, err := parseBearer(r.Header.Get("Authorization"))
 		if err != nil {
 			return domain.Principal{}, err
 		}
@@ -72,15 +71,6 @@ func (s *Server) requestPrincipal(w http.ResponseWriter, r *http.Request) (domai
 	}
 	return domain.Principal{ParticipantID: p.ID, Role: p.Role, SessionVersion: p.SessionVersion, DeviceID: d.ID}, nil
 }
-func (s *Server) confirmed(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := s.store.CheckConfirmation(principal(r), r.Header.Get("X-FamilyQuest-Confirmation")); err != nil {
-			writeError(w, http.StatusForbidden, "Подтвердите действие PIN-кодом родителя")
-			return
-		}
-		next(w, r)
-	}
-}
 func (s *Server) deviceRoutes() {
 	s.mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {
 		p, err := s.requestPrincipal(w, r)
@@ -95,7 +85,7 @@ func (s *Server) deviceRoutes() {
 		}
 		for _, v := range owner {
 			if v.ID == p.ParticipantID {
-				token, _ := auth.Bearer(r.Header.Get("Authorization"))
+				token, _ := parseBearer(r.Header.Get("Authorization"))
 				writeJSON(w, 200, map[string]any{"participant": v, "token": token, "remembered": p.DeviceID != "", "deviceId": p.DeviceID})
 				return
 			}

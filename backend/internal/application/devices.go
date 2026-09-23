@@ -12,8 +12,9 @@ import (
 )
 
 type DeviceRepository interface {
-	CreateDevice(context.Context, domain.TrustedDevice, string, domain.Participant, domain.Participant) error
-	AuthenticateDevice(context.Context, string) (domain.Participant, domain.TrustedDevice, error)
+	CreateDevice(context.Context, domain.TrustedDevice, string, domain.Participant, domain.Participant, string) error
+	DeviceAuthorized(context.Context, string, int64, int64) error
+	AuthenticateDevice(context.Context, string, time.Time, time.Time) (domain.Participant, domain.TrustedDevice, error)
 	ListDevices(context.Context) ([]domain.TrustedDevice, error)
 	RevokeDevice(context.Context, string) error
 	RevokeDeviceToken(context.Context, string) error
@@ -23,7 +24,7 @@ func deviceHash(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
 }
-func (s *Service) RememberDevice(ctx context.Context, owner domain.Participant, name string, parentID int64, parentPIN string) (string, domain.TrustedDevice, error) {
+func (s *Service) rememberDevice(ctx context.Context, owner domain.Participant, name string, parentID int64, parentPIN, previousSecret string) (string, domain.TrustedDevice, error) {
 	name = strings.TrimSpace(name)
 	if !domain.IsFamilyMember(domain.Principal{ParticipantID: owner.ID, Role: owner.Role}) || len([]rune(name)) < 1 || len([]rune(name)) > 80 {
 		return "", domain.TrustedDevice{}, domain.ErrInvalidInput
@@ -51,15 +52,17 @@ func (s *Service) RememberDevice(ctx context.Context, owner domain.Participant, 
 	if _, err := rand.Read(id); err != nil {
 		return "", domain.TrustedDevice{}, err
 	}
-	d := domain.TrustedDevice{ID: hex.EncodeToString(id), ParticipantID: owner.ID, Name: name, CreatedAt: time.Now().UTC(), LastSeenAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(domain.DeviceLifetime), Current: true}
-	err := s.repo.CreateDevice(ctx, d, deviceHash(secret), owner, approver)
+	now := s.now().UTC()
+	d := domain.TrustedDevice{ID: hex.EncodeToString(id), ParticipantID: owner.ID, Name: name, CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(domain.DeviceLifetime), Current: true}
+	err := s.repo.CreateDevice(ctx, d, deviceHash(secret), owner, approver, deviceHash(previousSecret))
 	return secret, d, err
 }
 func (s *Service) DeviceSession(ctx context.Context, secret string) (domain.Participant, domain.TrustedDevice, error) {
 	if len(secret) != 64 {
 		return domain.Participant{}, domain.TrustedDevice{}, domain.ErrUnauthorized
 	}
-	return s.repo.AuthenticateDevice(ctx, deviceHash(secret))
+	now := s.now().UTC()
+	return s.repo.AuthenticateDevice(ctx, deviceHash(secret), now, now.Add(domain.DeviceLifetime))
 }
 func (s *Service) ForgetDevice(ctx context.Context, secret string) error {
 	if len(secret) != 64 {
@@ -93,15 +96,28 @@ func (s *Service) ConfirmParent(ctx context.Context, p domain.Principal, pin str
 	}
 	return s.tokens.IssueConfirmation(p)
 }
-func (s *Service) CheckConfirmation(p domain.Principal, proof string) error {
-	v, err := s.tokens.Parse(proof)
-	if err != nil || !p.IsParent() || v.ConfirmedUntil <= time.Now().Unix() || v.ParticipantID != p.ParticipantID || v.SessionVersion != p.SessionVersion || v.Role != p.Role || v.DeviceID != p.DeviceID {
+func (s *Service) CheckConfirmation(ctx context.Context, p domain.Principal, proof string) error {
+	if !p.IsParent() || proof == "" {
 		return domain.ErrForbidden
+	}
+	v, err := s.tokens.Parse(proof)
+	if err != nil || !p.IsParent() || v.ConfirmedUntil <= s.now().Unix() || v.ParticipantID != p.ParticipantID || v.SessionVersion != p.SessionVersion || v.Role != p.Role || v.DeviceID != p.DeviceID {
+		return domain.ErrForbidden
+	}
+	current, err := s.repo.GetParticipant(ctx, p.ParticipantID)
+	if err != nil {
+		return err
+	}
+	if !current.Active || current.Role != domain.RoleParent || current.SessionVersion != p.SessionVersion {
+		return domain.ErrUnauthorized
+	}
+	if p.DeviceID != "" {
+		return s.repo.DeviceAuthorized(ctx, p.DeviceID, p.ParticipantID, p.SessionVersion)
 	}
 	return nil
 }
 func (s *Service) RemoveDevice(ctx context.Context, p domain.Principal, id, proof string) error {
-	if err := s.CheckConfirmation(p, proof); err != nil {
+	if err := s.CheckConfirmation(ctx, p, proof); err != nil {
 		return err
 	}
 	return s.repo.RevokeDevice(ctx, id)
