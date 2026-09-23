@@ -1,3 +1,6 @@
+import { MyDay } from './today/MyDay'
+import { WorkspaceNavigation } from './navigation/WorkspaceNavigation'
+import { workspaceSections, type WorkspaceSection } from './navigation/sections'
 import { useParentConfirmation } from '../application/useParentConfirmation'
 import { ParentConfirmation } from './session/ParentConfirmation'
 import { Devices } from './session/Devices'
@@ -9,6 +12,7 @@ import { Sports } from './sports/Sports'
 import { FamilyLife } from './family/FamilyLife'
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react'
 import '../App.css'
+import './navigation/workspace.css'
 import type { Chore, ChoreDraft, ExecutionMode, Participant, Reward, RewardPeriod, RewardType, Task } from '../domain/models'
 import { taskProgress } from '../domain/policies'
 import { useSession } from '../application/useSession'
@@ -29,22 +33,13 @@ type PinPrompt = {
   pin: string
 }
 
-type ActiveTab = 'day' | 'math' | 'earned' | 'sport' | 'family' | 'catalog' | 'users'
-
-const tabs: Array<{ id: ActiveTab; label: string; adultsOnly?: boolean }> = [
-  { id: 'day', label: 'Планер' },
-  { id: 'math', label: 'Математика · учимся считать' },
-  { id: 'earned', label: 'Мои звёзды и улыбки' },
-  { id: 'sport', label: 'Спорт · занятия и прогресс' },
-  { id: 'family', label: 'Семья · привычки и приключения' },
-  { id: 'catalog', label: 'Справочник обязанностей', adultsOnly: true },
-  { id: 'users', label: 'Настройки пользователей', adultsOnly: true },
-]
+type ActiveTab = WorkspaceSection
+const tabs = workspaceSections
 
 export function FamilyQuestWorkspace() {
  const { downloadBackup, restoreBackup } = useRuntime()
   const [selectedDate, setSelectedDate] = useState(() => localDate(new Date()))
-  const [activeTab, setActiveTab] = useState<ActiveTab>('day')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('today')
   const [busyTask, setBusyTask] = useState<number | null>(null)
   const [busyBehavior, setBusyBehavior] = useState<number | null>(null)
   const [isBackupBusy, setIsBackupBusy] = useState(false)
@@ -75,14 +70,14 @@ export function FamilyQuestWorkspace() {
   useEffect(() => { if (data.loadError) setError(data.loadError) }, [data.loadError])
 
   const availableTabs = useMemo(() => {
-    return tabs.filter((tab) => (tab.id !== 'math' || currentParticipant?.role === 'child') && (!['family', 'sport', 'earned'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
+    return tabs.filter((tab) => (tab.id !== 'today' || currentParticipant?.role === 'child' || currentParticipant?.role === 'parent') && (tab.id !== 'math' || currentParticipant?.role === 'child') && (!['family', 'sport', 'earned'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
   }, [currentParticipant])
 
   useEffect(() => {
     if (!availableTabs.some((tab) => tab.id === activeTab)) {
-      setActiveTab('day')
+      setActiveTab(currentParticipant && currentParticipant.role !== 'school' ? 'today' : 'day')
     }
-  }, [activeTab, availableTabs])
+  }, [activeTab, availableTabs, currentParticipant])
 
   const filteredTasks = useMemo(() => {
     if (currentParticipant) {
@@ -140,6 +135,7 @@ export function FamilyQuestWorkspace() {
     try {
       const session = await actions.login(pinPrompt.participant.id, pinPrompt.pin, loginOptions)
       establishSession(session)
+      setActiveTab(session.participant.role === 'school' ? 'day' : 'today')
       setPinPrompt(null)
       setLoginOptions({remember:false,deviceName:''})
     } catch (pinError) {
@@ -453,13 +449,6 @@ export function FamilyQuestWorkspace() {
     return (
       <>
         <div className="date-card">
-          <select aria-label="Раздел FamilyQuest" value={activeTab} onChange={(event) => setActiveTab(event.target.value as ActiveTab)}>
-            {availableTabs.map((tab) => (
-              <option key={tab.id} value={tab.id}>
-                {tab.label}
-              </option>
-            ))}
-          </select>
           <div className="date-stepper" aria-label="Выбор даты плана">
             <button aria-label="Предыдущий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(-1)}>
               ‹
@@ -469,6 +458,7 @@ export function FamilyQuestWorkspace() {
               ›
             </button>
           </div>
+          <button className="today-shortcut" disabled={selectedDate === localDate(new Date())} onClick={() => setSelectedDate(localDate(new Date()))}>Сегодня</button>
         </div>
         <UserMenu current={currentParticipant} participants={participants} open={isUserMenuOpen} onToggle={() => setIsUserMenuOpen(value => !value)} onView={enterViewMode} onSelect={askForParticipant} />
       </>
@@ -477,35 +467,20 @@ export function FamilyQuestWorkspace() {
 
   return (
     <main className="app-shell">
-      {(!currentParticipant || activeTab !== 'day') && (
-        <header className="topbar">
-          <div className={`topbar-actions ${currentParticipant ? 'compact' : ''}`}>
-            {!currentParticipant ? (
-              <section className="topbar-focus" aria-label="Общий прогресс семьи">
-                <div>
-                  <p className="eyebrow">Прогресс семьи</p>
-                  <h2>{completedTasks}/{totalTasks} дел отмечено</h2>
-                </div>
-                <div className="progress-track" aria-label={`Общий прогресс ${overallProgress}%`}>
-                  <span style={{ width: `${overallProgress}%` }} />
-                </div>
-              </section>
-            ) : null}
-            {renderPlanControls()}
-          </div>
-        </header>
-      )}
+      <WorkspaceNavigation items={availableTabs} active={activeTab} onSelect={setActiveTab} />
+      <div className="workspace-content">
+      <header className="workspace-toolbar"><div className="workspace-title"><p className="eyebrow">{currentParticipant ? 'Семейное пространство' : 'Общий прогресс семьи'}</p><h2>{availableTabs.find(tab => tab.id === activeTab)?.label ?? 'Планер'}</h2>{!currentParticipant && <small>{completedTasks}/{totalTasks} дел отмечено · {overallProgress}%</small>}</div>{renderPlanControls()}</header>
 
       {error && <p className="notice">{error}</p>}
 
       {<ParentConfirmation confirmation={confirmation} />}
       {pinPrompt && <PinDialog participants={participants} options={loginOptions} onOptions={setLoginOptions} error={error} participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
 
-      {activeTab === 'day' && <Planner participant={currentParticipant} participants={participants} tasks={tasks} filteredTasks={filteredTasks} reviewTasks={tasksForReview} assignments={assignments} ratings={behaviorRatings} day={dayLeaderboard} week={weekLeaderboard} month={monthLeaderboard} date={selectedDate} loading={isLoading} busyTask={busyTask} busyBehavior={busyBehavior} controls={renderPlanControls()} onComplete={completeTask} onConfirm={confirmTask} onRate={rateBehavior} />}
+      {activeTab === 'day' && <Planner participant={currentParticipant} participants={participants} tasks={tasks} filteredTasks={filteredTasks} reviewTasks={tasksForReview} assignments={assignments} ratings={behaviorRatings} day={dayLeaderboard} week={weekLeaderboard} month={monthLeaderboard} date={selectedDate} loading={isLoading} busyTask={busyTask} busyBehavior={busyBehavior} controls={null} onComplete={completeTask} onConfirm={confirmTask} onRate={rateBehavior} />}
 
       {!currentParticipant && activeTab === 'day' && <FamilyOverview date={selectedDate} participants={participants} />}
 
-      {activeTab === 'day' && currentParticipant?.role === 'child' && <section className="panel learning-invite"><div><h2>🔢 Математика</h2><p>Складывай, вычитай, умножай и дели. За правильные ответы получай звёздочки!</p></div><button onClick={() => setActiveTab('math')}>Начать занятие</button></section>}
+      {activeTab === 'today' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <MyDay participant={currentParticipant} tasks={tasks} assignments={assignments} summary={dayLeaderboard.find(entry => entry.participantId === currentParticipant.id)} loading={isLoading} busyTask={busyTask} reviewCount={tasksForReview.length} onComplete={completeTask} onNavigate={setActiveTab} />}
       {activeTab === 'math' && currentParticipant?.role === 'child' && <MathTraining key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
       {activeTab === 'earned' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <ActivityRewards key={currentParticipant.id} />}
 
@@ -517,6 +492,7 @@ export function FamilyQuestWorkspace() {
 
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Devices confirm={confirmation.ask} onCurrentRevoked={() => { void enterViewMode() }} />}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Settings participants={participants} tasks={tasks} rewards={rewards} pinEdit={pinEdit} setPinEdit={setPinEdit} newParticipant={newParticipant} setNewParticipant={setNewParticipant} newReward={newReward} setNewReward={setNewReward} backupBusy={isBackupBusy} onSavePin={saveParticipantPIN} onDeleteParticipant={deleteParticipant} onCreateParticipant={createParticipant} onExport={exportBackup} onImport={importBackup} onDeleteReward={deleteReward} onCreateReward={createReward} onToggleRewardParticipant={toggleRewardParticipant} />}
+      </div>
     </main>
   )
 }
