@@ -34,3 +34,31 @@
 .math-feedback > p { font-size:26px; }
 .math-feedback details { text-align:left; }
 @media(max-width:640px) { .math-work,.math-paper { padding:16px; } .math-operations,.math-choices { grid-template-columns:repeat(2,minmax(0,1fr)); } .learning-invite { flex-direction:column;align-items:stretch; } .math-keypad button { font-size:20px; } .math-division-head { gap:8px; font-size:28px; } }
+.column-notebook { --cell:44px; display:grid; grid-template-columns:repeat(var(--columns),var(--cell)); grid-template-rows:repeat(var(--rows),52px); width:max-content; margin:auto; color:#24352d; }
+.column-mark { display:flex; align-items:center; justify-content:center; font:28px ui-monospace,monospace; min-width:0; }
+.column-line { border-bottom:2px solid #24352d; pointer-events:none; z-index:2; }
+.column-notebook input.column-digit { box-sizing:border-box; width:38px; min-width:0; min-height:40px; height:40px; align-self:center; justify-self:center; padding:0; border:1px solid #8eaa9a; border-radius:5px; background:#fff; color:#24352d; text-align:center; font:26px ui-monospace,monospace; }
+.column-notebook input.column-carry { width:26px; height:28px; min-height:28px; font-size:18px; background:#edf5ef; }
+.column-digit.is-selected { outline:3px solid var(--accent); outline-offset:1px; }
+.column-bracket { border-left:2px solid #24352d; position:relative; pointer-events:none; }
+.column-bracket::after { content:''; position:absolute; top:50%; left:0; width:calc(var(--cell) * 4); border-top:2px solid #24352d; }
+@media(max-width:640px) { .column-notebook { --cell:36px; grid-template-rows:repeat(var(--rows),46px); } .column-notebook input.column-digit { width:32px; font-size:23px; } }
+.column-dot-anchor { display:flex; align-items:center; justify-content:center; }
+.column-notebook button.column-dot { display:grid; place-items:center; box-sizing:border-box; width:calc(var(--cell) - 8px); height:28px; min-width:0; min-height:0; margin:0; padding:0; border:1px solid #efbb28; border-radius:7px; background:#fff7d7; box-shadow:none; cursor:pointer; }
+.column-notebook button.column-dot:hover:not(:disabled), .column-notebook button.column-dot:not(:disabled) { background:#fff0b5; border-color:#e9ac00; }
+.column-dot > span { width:6px; height:6px; border-radius:50%; background:#24352d; visibility:hidden; }
+.column-dot[aria-pressed=true] > span { visibility:visible; }
+.column-notebook button.column-dot:focus-visible { outline:2px solid #b78900; outline-offset:2px; }
+.column-notebook.column-arithmetic { grid-template-rows:32px 46px 46px 52px; }
+.column-arithmetic .column-digit.is-selected { outline:none; border:2px solid #4bcb68; background:#d8f5df; }
+.column-mark.column-active-operand { background:#d9eafb; color:#165b9b; border-radius:6px; }
+.column-notebook input.column-digit:disabled { background:#eef0ed; border-color:#d4dad3; opacity:.65; }
+.column-notebook button.column-dot:disabled { cursor:default; opacity:1; }
+
+
+.column-notebook input.column-carry { background:#fff1d8; border-color:#c48b35; }
+.column-multiplication .column-sign { color:#ff5252; font-weight:bold; }
+.column-multiplication .column-shift, .column-multiplication .column-empty { box-sizing:border-box; width:calc(var(--cell) - 8px); height:40px; align-self:center; justify-self:center; background:#f5f5f5; border:1px solid #e3e3e3; border-radius:7px; }
+.column-multiplication .column-shift { color:#ff5252; }
+.column-multiplication .column-digit.is-selected { outline:none; border:2px solid #4bcb68; background:#d8f5df; }
+.column-multiplication input.column-carry.is-selected { border-color:#f59c3d; background:#ffe5c5; }

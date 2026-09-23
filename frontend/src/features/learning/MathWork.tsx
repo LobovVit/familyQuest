@@ -1,6 +1,11 @@
 import { useState } from 'react'
+import { ColumnWork } from './ColumnWork'
 import { mathSymbols, type MathField, type MathView } from '../../domain/learning'
-export function MathWork({ session, busy, onSubmit }: { session: MathView; busy: boolean; onSubmit: (values: Record<string, number>) => Promise<void> }) {
+export function MathWork(props: { session: MathView; busy: boolean; onSubmit: (values: Record<string, number>) => Promise<void> }) {
+ if (props.session.settings.level === 'columnar') return <ColumnWork {...props} />
+ return <ClassicMathWork {...props} />
+}
+function ClassicMathWork({ session, busy, onSubmit }: { session: MathView; busy: boolean; onSubmit: (values: Record<string, number>) => Promise<void> }) {
  const q = session.question!, column = session.settings.level === 'columnar', division = session.settings.operation === ':'
  const [values, setValues] = useState<Record<string, string>>({}), [selected, setSelected] = useState('answer'), [error, setError] = useState('')
  const maxDigits = (f: MathField) => column ? f.width : 7
