@@ -9,16 +9,16 @@ export function ColumnWork({ session, busy, onSubmit }: { session: MathView; bus
  const [selected, setSelected] = useState(layout.order[0]), [error, setError] = useState('')
  const inputs = useRef<Record<string, HTMLInputElement | null>>({})
  const active = layout.cells.find(c => c.id === selected)
- const inputCells = [...layout.order.map(id => layout.cells.find(c => c.id === id)!), ...layout.cells.filter(c => c.memo)]
+ const inputCells = [...layout.order.map(id => layout.cells.find(c => c.id === id)!), ...layout.cells.filter(c => c.memo && !c.dot)]
  function enabled(c: ColumnCell) {
   if (!layout.arithmetic || c.carry || c.id === selected || c.col === layout.size) return true
   return layout.cells.some(other => other.key === 'answer' && other.col > c.col && !!values[other.id])
  }
- function dotEnabled(c: ColumnCell) { return !!active && (c.col === active.col - 1 || (active.col === 2 && c.col === 2)) }
+ function dotEnabled(c: ColumnCell) { return !!active && (!c.memo || active.key === 'answer') && (c.col === active.col - 1 || (active.col === 2 && c.col === 2)) }
  const partialIndex = active?.key.startsWith('partial_') ? Number(active.key.split('_')[1]) : active?.key.startsWith('mulcarry_') ? Number(active.key.split('_')[1]) : undefined
  const topColumn = active ? active.col + (active.carry ? 1 : 0) + (partialIndex ?? 0) : undefined
  const bottomColumn = layout.multiplication ? partialIndex === undefined ? undefined : layout.size - partialIndex : topColumn
- const instruction = layout.division ? 'Дели слева направо: цифра частного → умножение → вычитание → снос следующей цифры. Не пропускай нули в частном.' : layout.arithmetic ? 'Выбирай клетки ответа справа налево и вписывай по одной цифре. Нажми на точку над первым числом, чтобы отметить или убрать перенос в следующий разряд.' : 'Выбирай клетки справа налево. Ввод цифры не меняет выбранную клетку. Над каждой строкой записывай цифры «в уме». Строки сдвигаются влево. При сложении строк тоже можно записать число «в уме».'
+ const instruction = layout.division ? 'Дели слева направо: цифра частного → умножение → вычитание → снос следующей цифры. Не пропускай нули в частном.' : layout.arithmetic ? 'Выбирай клетки ответа справа налево и вписывай по одной цифре. Нажми на точку над первым числом, чтобы отметить или убрать перенос в следующий разряд.' : 'Выбирай клетки справа налево. Ввод цифры не меняет выбранную клетку. Над каждой строкой записывай цифры «в уме». Строки сдвигаются влево. После знака «=» отмечай «в уме» точками, как при сложении.'
  function write(id: string, value: string) {
   const cell = layout.cells.find(c => c.id === id)
   if (busy || !cell || !enabled(cell) || !/^\d?$/.test(value)) return

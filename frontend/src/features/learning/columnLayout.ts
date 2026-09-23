@@ -63,7 +63,7 @@ export function columnLayout(session: MathView) {
    for (let j = 0; j < String(left * right).length - 1; j++) {
     const key = `sumcarry_${j}`
     widths[key] = 1
-    cells.push({ id: `${key}:0`, key, digit: 0, label: `Сложение строк: в уме из разряда ${j + 1}`, row: rows + 1, col: size - j - 1, carry: true, memo: true })
+    cells.push({ id: `${key}:0`, key, digit: 0, label: `Сложение строк: в уме из разряда ${j + 1}`, row: rows + 1, col: size - j - 1, carry: true, memo: true, dot: true })
    }
    addField('answer', String(left * right).length, rows + 2, size, true)
    rows += 2

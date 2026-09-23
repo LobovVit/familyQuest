@@ -121,12 +121,22 @@ it('creates one partial per multiplier digit including zero and addition only wh
   if (right === 206) expect(layout.cells.filter(c => c.key === 'partial_1')).toHaveLength(1)
  }
 })
-it('keeps numeric addition memos separate from the final answer and clears them', () => {
- render(<ColumnWork session={session('*', 24, 13, { partial_0: 72, partial_1: 24, answer: 312 })} busy={false} onSubmit={async () => {}} />)
- const memo = screen.getByLabelText('Сложение строк: в уме из разряда 1') as HTMLInputElement
- fireEvent.focus(memo); fireEvent.click(screen.getByRole('button', { name: '1' })); expect(memo.value).toBe('1')
- expect((screen.getByLabelText('answer, разряд 1') as HTMLInputElement).value).toBe('')
- fireEvent.click(screen.getByRole('button', { name: 'Очистить' })); expect(memo.value).toBe('')
+it('toggles final addition memos as dots without changing the selected answer or numeric multiplication carries', () => {
+ render(<ColumnWork session={session('*', 24, 13, { partial_0: 72, mulcarry_0_0: 1, mulcarry_0_1: 0, partial_1: 24, answer: 312 })} busy={false} onSubmit={async () => {}} />)
+ const memo = screen.getByRole('button', { name: 'Сложение строк: в уме из разряда 1' }) as HTMLButtonElement
+ expect(memo.disabled).toBe(true)
+ expect(screen.queryByRole('textbox', { name: 'Сложение строк: в уме из разряда 1' })).toBeNull()
+ expect(screen.getByRole('textbox', { name: 'mulcarry_0_0, разряд 1' })).toBeTruthy()
+ const answer = screen.getByLabelText('answer, разряд 1') as HTMLInputElement
+ fireEvent.focus(answer)
+ expect(memo.disabled).toBe(false)
+ fireEvent.click(memo); expect(memo.getAttribute('aria-pressed')).toBe('true')
+ fireEvent.click(memo); expect(memo.getAttribute('aria-pressed')).toBe('false')
+ fireEvent.click(memo)
+ fireEvent.click(screen.getByRole('button', { name: '2' }))
+ expect(answer.value).toBe('2')
+ fireEvent.click(screen.getByRole('button', { name: 'Очистить' }))
+ expect(memo.getAttribute('aria-pressed')).toBe('false'); expect(answer.value).toBe('')
 })
 
 it('highlights the operand places and keeps carry selection independent from product digits', () => {
