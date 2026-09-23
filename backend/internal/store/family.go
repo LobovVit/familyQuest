@@ -58,16 +58,38 @@ func (s *Store) GetFamilyEntry(ctx context.Context, id int64) (domain.FamilyEntr
 	return scanFamilyEntry(s.pool.QueryRow(ctx, "select "+familyColumns+" from family_entries where id=$1", id))
 }
 func (s *Store) SaveFamilyEntry(ctx context.Context, e domain.FamilyEntry) (domain.FamilyEntry, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return e, err
+	}
+	defer tx.Rollback(ctx)
+	var before domain.FamilyEntry
+	if e.ID != 0 {
+		before, err = scanFamilyEntry(tx.QueryRow(ctx, "select "+familyColumns+" from family_entries where id=$1 for update", e.ID))
+		if err != nil {
+			return e, err
+		}
+		if before.Version != e.Version {
+			return e, domain.ErrConflict
+		}
+	}
 	data, err := json.Marshal(e)
 	if err != nil {
 		return e, err
 	}
+	var saved domain.FamilyEntry
 	if e.ID == 0 {
-		return scanFamilyEntry(s.pool.QueryRow(ctx, "insert into family_entries(author_id,data) values($1,$2) returning "+familyColumns, e.AuthorID, data))
+		saved, err = scanFamilyEntry(tx.QueryRow(ctx, "insert into family_entries(author_id,data) values($1,$2) returning "+familyColumns, e.AuthorID, data))
+	} else {
+		saved, err = scanFamilyEntry(tx.QueryRow(ctx, "update family_entries set data=$1,version=version+1,updated_at=now() where id=$2 and version=$3 returning "+familyColumns, data, e.ID, e.Version))
 	}
-	saved, err := scanFamilyEntry(s.pool.QueryRow(ctx, "update family_entries set data=$1,version=version+1,updated_at=now() where id=$2 and version=$3 returning "+familyColumns, data, e.ID, e.Version))
-	if errors.Is(err, domain.ErrNotFound) {
-		return saved, domain.ErrConflict
+	if err != nil {
+		return e, err
 	}
-	return saved, err
+	for _, reward := range domain.FamilyRewardCandidates(before, saved) {
+		if err = insertActivityReward(ctx, tx, reward); err != nil {
+			return e, err
+		}
+	}
+	return saved, tx.Commit(ctx)
 }

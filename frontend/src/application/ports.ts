@@ -1,9 +1,16 @@
+import type { MathSettings, MathView, ActivityReward } from '../domain/learning'
 import type { FamilyOverview, FamilyAction, FamilyDraft, FamilyEntry, FamilyKind } from '../domain/family'
 import type { Assignment, BehaviorRating, Chore, ChoreDraft, LeaderboardEntry, LoginResponse, Participant, Reward, RewardPeriod, RewardType, Task } from '../domain/models'
 
 export type ParticipantDraft = { name: string; role: Participant['role']; pin: string }
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
+ finishMath(id: string): Promise<MathView>
+ mathSessions(): Promise<MathView[]>
+ startMath(settings: MathSettings): Promise<MathView>
+ answerMath(id: string, index: number, values: Record<string, number>): Promise<MathView>
+ activityRewards(): Promise<ActivityReward[]>
+
  familyOverview(date: string): Promise<FamilyOverview>
  familyEntries(): Promise<FamilyEntry[]>
  createFamily(kind: FamilyKind, draft: FamilyDraft): Promise<FamilyEntry>

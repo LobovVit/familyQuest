@@ -6,9 +6,11 @@ import (
 	"time"
 )
 
-const BackupVersion = 2
+const BackupVersion = 3
 
 type BackupData struct {
+	MathSessions       []domain.MathSession      `json:"mathSessions"`
+	ActivityRewards    []domain.ActivityReward   `json:"activityRewards"`
 	FamilyEntries      []domain.FamilyEntry      `json:"familyEntries"`
 	Version            int                       `json:"version"`
 	ExportedAt         time.Time                 `json:"exportedAt"`
@@ -96,7 +98,7 @@ type BackupRewardParticipant struct {
 
 // Validate rejects unsupported and unusable backups before touching stored data.
 func (b BackupData) Validate() error {
-	if b.Version != 1 && b.Version != BackupVersion {
+	if b.Version != 1 && b.Version != 2 && b.Version != BackupVersion {
 		return fmt.Errorf("%w: unsupported backup version %d", domain.ErrInvalidInput, b.Version)
 	}
 	hasParent := false
@@ -117,5 +119,8 @@ func (b BackupData) Validate() error {
 	if !hasParent {
 		return fmt.Errorf("%w: backup requires an active parent", domain.ErrInvalidInput)
 	}
-	return b.validateFamily()
+	if err := b.validateFamily(); err != nil {
+		return err
+	}
+	return b.validateLearning()
 }

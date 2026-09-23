@@ -11,8 +11,8 @@ import './family.css'
 type View = 'today' | 'activities' | 'garden' | FamilyKind
 type Editor = { kind: FamilyKind; draft: FamilyDraft; entry?: FamilyEntry }
 const views: Array<{ id: View; label: string; icon: string }> = [{ id: 'today', label: 'Сегодня вместе', icon: '☀️' }, { id: 'activities', label: 'Чем займёмся?', icon: '🎲' }, ...Object.entries(kindLabels).filter(([id]) => id !== 'sport').map(([id, label]) => ({ id: id as FamilyKind, label, icon: kindIcons[id as FamilyKind] })), { id: 'garden', label: 'Наш сад', icon: '🌳' }]
-export function FamilyLife({ current, participants, date }: { current: Participant; participants: Participant[]; date: string }) {
-  const data = useFamilyLife()
+export function FamilyLife({ current, participants, date, onProgress }: { current: Participant; participants: Participant[]; date: string; onProgress?: () => void }) {
+  const data = useFamilyLife(onProgress)
   const [view, setView] = useState<View>('today')
   const [showArchive, setShowArchive] = useState(false)
   const [editor, setEditor] = useState<Editor | null>(null)

@@ -1,0 +1,76 @@
+package domain
+
+import (
+	"reflect"
+	"testing"
+	"time"
+)
+
+func TestMathColumnAlgorithms(t *testing.T) {
+	cases := []struct {
+		op       string
+		a, b     int
+		expected map[string]int
+	}{
+		{"+", 58, 67, map[string]int{"carry_0": 1, "carry_1": 1, "answer": 125}},
+		{"-", 300, 127, map[string]int{"carry_0": 1, "carry_1": 1, "carry_2": 0, "answer": 173}},
+		{"*", 24, 13, map[string]int{"mulcarry_0_0": 1, "mulcarry_0_1": 0, "partial_0": 72, "mulcarry_1_0": 0, "mulcarry_1_1": 0, "partial_1": 24, "answer": 312}},
+		{":", 816, 8, map[string]int{"product_0": 8, "remainder_0": 0, "bring_1": 1, "product_1": 0, "remainder_1": 1, "bring_2": 6, "product_2": 16, "remainder_2": 0, "answer": 102}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.op, func(t *testing.T) {
+			fields, got := (MathQuestion{Left: tc.a, Right: tc.b}).Work(MathSettings{Operation: tc.op, Level: "columnar", DivisionMode: "full"})
+			if len(fields) != len(tc.expected) || !reflect.DeepEqual(got, tc.expected) {
+				t.Fatalf("got %+v want %+v", got, tc.expected)
+			}
+		})
+	}
+}
+func TestMathGenerationAndIdempotence(t *testing.T) {
+	for _, op := range []string{"+", "-", "*", ":"} {
+		for _, level := range []string{"easy", "medium", "hard", "columnar"} {
+			for _, mode := range []string{"input", "choice"} {
+				if level == "columnar" && mode == "choice" {
+					continue
+				}
+				settings := MathSettings{Operation: op, Level: level, AnswerMode: mode, DivisionMode: "full", AllowNegative: true}
+				s := NewMathSession("0123456789abcdef0123456789abcdef", 2, settings, time.Now())
+				if err := s.Validate(); err != nil {
+					t.Fatal(settings, err)
+				}
+				for i, q := range s.Questions {
+					_, answer := q.Work(settings)
+					if err := s.Submit(i, answer, time.Now()); err != nil {
+						t.Fatal(err)
+					}
+					if err := s.Submit(i, map[string]int{"answer": 9999}, time.Now()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if s.View().Correct != len(s.Questions) || s.View().Stars != len(s.Questions)*settings.Stars() {
+					t.Fatal("incorrect rewards", s.View())
+				}
+				if err := s.Validate(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+}
+func TestMathWorkMustBeCorrectAndOrdered(t *testing.T) {
+	settings := MathSettings{Operation: "+", Level: "columnar", AnswerMode: "input", DivisionMode: "full"}
+	s := NewMathSession("0123456789abcdef0123456789abcdef", 2, settings, time.Now())
+	s.Questions[0] = MathQuestion{Left: 58, Right: 67, Options: []int{}}
+	if s.Submit(1, map[string]int{}, time.Now()) != ErrConflict {
+		t.Fatal("accepted out of order")
+	}
+	if s.Submit(0, map[string]int{"answer": 125}, time.Now()) != ErrInvalidInput {
+		t.Fatal("accepted missing work")
+	}
+	if err := s.Submit(0, map[string]int{"answer": 125, "carry_0": 0, "carry_1": 1}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if s.Answers[0].Correct || s.Answers[0].Stars != 0 {
+		t.Fatal("wrong carry rewarded")
+	}
+}

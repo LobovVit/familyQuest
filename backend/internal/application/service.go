@@ -11,6 +11,7 @@ import (
 
 // Repository is the persistence port consumed by application use cases.
 type Repository interface {
+	LearningRepository
 	FamilyRepository
 	Ping(context.Context) error
 	GetParticipant(context.Context, int64) (domain.Participant, error)

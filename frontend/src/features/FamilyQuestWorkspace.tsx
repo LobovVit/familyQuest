@@ -1,3 +1,5 @@
+import { MathTraining } from './learning/MathTraining'
+import { ActivityRewards } from './learning/ActivityRewards'
 import { FamilyOverview } from './overview/FamilyOverview'
 import { Sports } from './sports/Sports'
 import { FamilyLife } from './family/FamilyLife'
@@ -23,10 +25,12 @@ type PinPrompt = {
   pin: string
 }
 
-type ActiveTab = 'day' | 'sport' | 'family' | 'catalog' | 'users'
+type ActiveTab = 'day' | 'math' | 'earned' | 'sport' | 'family' | 'catalog' | 'users'
 
 const tabs: Array<{ id: ActiveTab; label: string; adultsOnly?: boolean }> = [
   { id: 'day', label: 'Планер' },
+  { id: 'math', label: 'Математика · учимся считать' },
+  { id: 'earned', label: 'Мои звёзды и улыбки' },
   { id: 'sport', label: 'Спорт · занятия и прогресс' },
   { id: 'family', label: 'Семья · привычки и приключения' },
   { id: 'catalog', label: 'Справочник обязанностей', adultsOnly: true },
@@ -65,7 +69,7 @@ export function FamilyQuestWorkspace() {
   useEffect(() => { if (data.loadError) setError(data.loadError) }, [data.loadError])
 
   const availableTabs = useMemo(() => {
-    return tabs.filter((tab) => (!['family', 'sport'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
+    return tabs.filter((tab) => (tab.id !== 'math' || currentParticipant?.role === 'child') && (!['family', 'sport', 'earned'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
   }, [currentParticipant])
 
   useEffect(() => {
@@ -487,9 +491,13 @@ export function FamilyQuestWorkspace() {
 
       {!currentParticipant && activeTab === 'day' && <FamilyOverview date={selectedDate} participants={participants} />}
 
-      {activeTab === 'sport' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <Sports key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} />}
+      {activeTab === 'day' && currentParticipant?.role === 'child' && <section className="panel learning-invite"><div><h2>🔢 Математика</h2><p>Складывай, вычитай, умножай и дели. За правильные ответы получай звёздочки!</p></div><button onClick={() => setActiveTab('math')}>Начать занятие</button></section>}
+      {activeTab === 'math' && currentParticipant?.role === 'child' && <MathTraining key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
+      {activeTab === 'earned' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <ActivityRewards key={currentParticipant.id} />}
 
-      {activeTab === 'family' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <FamilyLife key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} />}
+      {activeTab === 'sport' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <Sports key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} onProgress={() => { void data.refresh() }} />}
+
+      {activeTab === 'family' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <FamilyLife key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} onProgress={() => { void data.refresh() }} />}
 
       {currentParticipant?.role === 'parent' && activeTab === 'catalog' && <Catalog chores={chores} editingId={editingChoreId} onAdd={startNewChore} onEdit={startEditChore} newEditor={<ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} editor={() => <ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} />}
 

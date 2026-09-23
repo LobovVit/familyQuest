@@ -3,6 +3,12 @@ import { api } from './apiClient'
 
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
 export const gateway: FamilyQuestGateway = {
+ finishMath: id => api(`/api/math/${encodeURIComponent(id)}/finish`, post({})),
+ mathSessions: () => api('/api/math'),
+ startMath: settings => api('/api/math', post(settings)),
+ answerMath: (id, index, values) => api(`/api/math/${encodeURIComponent(id)}/answers`, post({ index, values })),
+ activityRewards: () => api('/api/activity-rewards'),
+
  familyOverview: date => api(`/api/family/overview?date=${encodeURIComponent(date)}`),
  familyEntries: () => api('/api/family'),
  createFamily: (kind, draft) => api('/api/family', post({ kind, draft })),

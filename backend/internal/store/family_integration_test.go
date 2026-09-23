@@ -134,7 +134,7 @@ func TestFamilyPostgresLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if backup.Version != 2 || len(backup.FamilyEntries) != 7 {
+	if backup.Version != application.BackupVersion || len(backup.FamilyEntries) != 7 {
 		t.Fatalf("backup missing family: %d", len(backup.FamilyEntries))
 	}
 	if err := app.ImportBackup(ctx, p, backup); err != nil {
@@ -176,6 +176,8 @@ func TestFamilyPostgresLifecycle(t *testing.T) {
 	// Old backups remain usable and explicitly replace the entire family state.
 	backup.Version = 1
 	backup.FamilyEntries = nil
+	backup.MathSessions = nil
+	backup.ActivityRewards = nil
 	if err := app.ImportBackup(ctx, p, backup); err != nil {
 		t.Fatal(err)
 	}

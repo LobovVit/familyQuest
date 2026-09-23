@@ -43,6 +43,8 @@ func (s *Store) ExportBackup(ctx context.Context) (BackupData, error) {
 func emptyBackupData() BackupData {
 	return BackupData{
 		Version:            BackupVersion,
+		MathSessions:       []domain.MathSession{},
+		ActivityRewards:    []domain.ActivityReward{},
 		FamilyEntries:      []domain.FamilyEntry{},
 		ExportedAt:         time.Now().UTC(),
 		Participants:       []BackupParticipant{},
@@ -67,7 +69,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	defer tx.Rollback(ctx)
 
 	// Lock before reading credentials so a concurrent PIN update cannot be lost.
-	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries in access exclusive mode`); err != nil {
+	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards in access exclusive mode`); err != nil {
 		return err
 	}
 
@@ -99,7 +101,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	rows.Close()
 
-	if _, err := tx.Exec(ctx, `truncate family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
+	if _, err := tx.Exec(ctx, `truncate math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
 		return err
 	}
 	for _, item := range backup.Participants {
@@ -190,6 +192,20 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 			return err
 		}
 	}
+	for _, session := range backup.MathSessions {
+		raw, err := json.Marshal(session)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `insert into math_sessions(id,participant_id,data,created_at) values($1,$2,$3,$4)`, session.ID, session.ParticipantID, raw, session.CreatedAt); err != nil {
+			return err
+		}
+	}
+	for _, r := range backup.ActivityRewards {
+		if _, err := tx.Exec(ctx, `insert into activity_rewards(source,source_key,participant_id,earned_date,stars,smiles,title) values($1,$2,$3,$4::date,$5,$6,$7)`, r.Source, r.SourceKey, r.ParticipantID, r.Date, r.Stars, r.Smiles, r.Title); err != nil {
+			return err
+		}
+	}
 	if err := resetSequences(ctx, tx); err != nil {
 		return err
 	}
@@ -236,6 +252,31 @@ func (s *Store) HasAnyData(ctx context.Context) (bool, error) {
 }
 
 func scanBackupRows(ctx context.Context, query func(context.Context, string, ...any) (pgx.Rows, error), backup *BackupData) error {
+	if err := scanRows(ctx, query, "select data from math_sessions order by created_at,id", func(rows pgx.Rows) error {
+		var raw []byte
+		var session domain.MathSession
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(raw, &session); err != nil {
+			return err
+		}
+		backup.MathSessions = append(backup.MathSessions, session)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := scanRows(ctx, query, "select source,source_key,participant_id,earned_date::text,stars,smiles,title from activity_rewards order by participant_id,source,source_key", func(rows pgx.Rows) error {
+		var r domain.ActivityReward
+		if err := rows.Scan(&r.Source, &r.SourceKey, &r.ParticipantID, &r.Date, &r.Stars, &r.Smiles, &r.Title); err != nil {
+			return err
+		}
+		backup.ActivityRewards = append(backup.ActivityRewards, r)
+		return nil
+	}); err != nil {
+		return err
+	}
+
 	if err := scanRows(ctx, query, "select "+familyColumns+" from family_entries order by id", func(rows pgx.Rows) error {
 		item, err := scanFamilyEntry(rows)
 		if err != nil {

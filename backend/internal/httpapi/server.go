@@ -53,6 +53,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) routes() {
 	s.familyRoutes()
+	s.learningRoutes()
 	s.mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Ready(r.Context()); err != nil {
 			writeError(w, http.StatusServiceUnavailable, "database unavailable")

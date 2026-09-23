@@ -754,11 +754,11 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 		select p.id, p.name,
 		       coalesce(activity.tasks_done, 0)::int as tasks_done,
 		       coalesce(planned.tasks_assigned, 0)::int as tasks_assigned,
-		       coalesce(activity.reward, 0)::float as reward,
+		       (coalesce(activity.reward, 0)+coalesce(bonus.stars,0))::float as reward,
 		       coalesce(activity.average_rating, 0)::float as average_rating,
 		       coalesce(behavior.behavior_rating, 0)::float as behavior_rating,
 		       coalesce(behavior.behavior_count, 0)::int as behavior_count,
-		       coalesce(behavior.behavior_smiles, 0)::int as behavior_smiles
+		       (coalesce(behavior.behavior_smiles, 0)+coalesce(bonus.smiles,0))::int as behavior_smiles
 		from participants p
 		left join lateral (
 			select count(*)::int as tasks_assigned
@@ -798,6 +798,7 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 			  and rated_date >= $1::date
 			  and rated_date < $2::date
 		) behavior on true
+        left join lateral (select sum(stars) as stars,sum(smiles) as smiles from activity_rewards where participant_id=p.id and earned_date >= $1::date and earned_date < $2::date) bonus on true
 		where p.active = true
 		order by reward desc, behavior_rating desc, tasks_done desc, tasks_assigned desc, p.id
 	`, start.Format("2006-01-02"), end.Format("2006-01-02"))

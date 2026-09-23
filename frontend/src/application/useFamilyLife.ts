@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRuntime } from './runtime'
 import type { FamilyAction, FamilyDraft, FamilyEntry, FamilyKind } from '../domain/family'
 
-export function useFamilyLife() {
+export function useFamilyLife(onProgress?: () => void) {
   const { gateway } = useRuntime()
   const [entries, setEntries] = useState<FamilyEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +39,7 @@ export function useFamilyLife() {
       const saved = await operation()
       revision.current++
       if (active.current) setEntries(items => [saved, ...items.filter(e => e.id !== saved.id)].sort((a, b) => b.id - a.id))
+      if (active.current) onProgress?.()
       return true
     } catch (e) {
       let message = e instanceof Error ? e.message : 'Не удалось сохранить'
