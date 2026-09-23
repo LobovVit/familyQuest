@@ -1,0 +1,11 @@
+.family-overview { margin-top: 28px; }
+.overview-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.overview-columns .panel { min-width: 0; }
+.overview-list { display: grid; gap: 16px; margin-top: 18px; }
+.overview-list article { border-top: 1px solid var(--border); padding-top: 16px; overflow-wrap: anywhere; }
+.overview-list h3 { margin: 0 0 8px; font-size: 18px; }
+.overview-list p { margin: 6px 0; line-height: 1.5; }
+.overview-list progress { width: 100%; accent-color: #235c42; }
+.overview-totals { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.overview-done { color: #235c42; font-weight: 600; }
+@media (max-width: 1000px) { .overview-columns { grid-template-columns: 1fr; } }

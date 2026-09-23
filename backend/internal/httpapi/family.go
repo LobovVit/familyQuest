@@ -9,6 +9,7 @@ import (
 )
 
 func (s *Server) familyRoutes() {
+	s.mux.HandleFunc("GET /api/family/overview", s.familyOverview)
 	s.mux.Handle("GET /api/family", s.authorize(false, s.listFamily))
 	s.mux.Handle("POST /api/family", s.authorize(false, s.createFamily))
 	s.mux.Handle("PUT /api/family/{id}", s.authorize(false, s.editFamily))
@@ -69,5 +70,11 @@ func (s *Server) familyAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, err := s.store.FamilyAction(r.Context(), principal(r), id, request)
+	respond(w, v, err)
+}
+
+func (s *Server) familyOverview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	v, err := s.store.FamilyOverview(r.Context(), r.URL.Query().Get("date"))
 	respond(w, v, err)
 }

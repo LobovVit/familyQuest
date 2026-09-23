@@ -1,9 +1,10 @@
-import type { FamilyAction, FamilyDraft, FamilyEntry, FamilyKind } from '../domain/family'
+import type { FamilyOverview, FamilyAction, FamilyDraft, FamilyEntry, FamilyKind } from '../domain/family'
 import type { Assignment, BehaviorRating, Chore, ChoreDraft, LeaderboardEntry, LoginResponse, Participant, Reward, RewardPeriod, RewardType, Task } from '../domain/models'
 
 export type ParticipantDraft = { name: string; role: Participant['role']; pin: string }
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
+ familyOverview(date: string): Promise<FamilyOverview>
  familyEntries(): Promise<FamilyEntry[]>
  createFamily(kind: FamilyKind, draft: FamilyDraft): Promise<FamilyEntry>
  editFamily(id: number, version: number, draft: FamilyDraft): Promise<FamilyEntry>

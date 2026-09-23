@@ -14,3 +14,7 @@ frontend/.vite/
 .env
 .env.*
 !.env.example
+
+# Private family bootstrap credentials
+backend/seed/familyquest-private.json
+docker-compose.override.yml

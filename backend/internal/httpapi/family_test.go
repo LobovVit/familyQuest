@@ -35,6 +35,9 @@ func TestFamilyHTTPAccessAndInput(t *testing.T) {
 		name, role, method, path, body string
 		status                         int
 	}{
+		{"anonymous overview", "", "GET", "/api/family/overview?date=2026-09-23", "", 200},
+		{"invalid overview date", "", "GET", "/api/family/overview?date=wrong", "", 400},
+		{"overview cannot mutate", "", "POST", "/api/family/overview", "{}", 405},
 		{"anonymous read", "", "GET", "/api/family", "", 401},
 		{"school read", domain.RoleSchool, "GET", "/api/family", "", 403},
 		{"child read", domain.RoleChild, "GET", "/api/family", "", 200},

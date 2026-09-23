@@ -46,3 +46,11 @@ export function gardenMilestones(entries: FamilyEntry[]): { key: string; icon: s
     return []
   }).sort((a, b) => b.date.localeCompare(a.date))
 }
+
+export type FamilyOverviewCard = { id: number; title: string; participantIds: number[] }
+export type FamilyOverview = {
+  date: string; weekStart: string
+  sports: (FamilyOverviewCard & { date: string; activity: string; minutes: number; distanceKm: number })[]
+  habits: (FamilyOverviewCard & { completedIds: number[] })[]
+  adventures: (FamilyOverviewCard & { date: string; completedSteps: number; totalSteps: number })[]
+}

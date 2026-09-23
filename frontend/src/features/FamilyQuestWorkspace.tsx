@@ -1,3 +1,4 @@
+import { FamilyOverview } from './overview/FamilyOverview'
 import { Sports } from './sports/Sports'
 import { FamilyLife } from './family/FamilyLife'
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react'
@@ -483,6 +484,8 @@ export function FamilyQuestWorkspace() {
       {pinPrompt && <PinDialog participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
 
       {activeTab === 'day' && <Planner participant={currentParticipant} participants={participants} tasks={tasks} filteredTasks={filteredTasks} reviewTasks={tasksForReview} assignments={assignments} ratings={behaviorRatings} day={dayLeaderboard} week={weekLeaderboard} month={monthLeaderboard} date={selectedDate} loading={isLoading} busyTask={busyTask} busyBehavior={busyBehavior} controls={renderPlanControls()} onComplete={completeTask} onConfirm={confirmTask} onRate={rateBehavior} />}
+
+      {!currentParticipant && activeTab === 'day' && <FamilyOverview date={selectedDate} participants={participants} />}
 
       {activeTab === 'sport' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <Sports key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} />}
 

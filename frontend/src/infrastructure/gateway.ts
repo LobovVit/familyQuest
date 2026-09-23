@@ -3,6 +3,7 @@ import { api } from './apiClient'
 
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
 export const gateway: FamilyQuestGateway = {
+ familyOverview: date => api(`/api/family/overview?date=${encodeURIComponent(date)}`),
  familyEntries: () => api('/api/family'),
  createFamily: (kind, draft) => api('/api/family', post({ kind, draft })),
  editFamily: (id, version, draft) => api(`/api/family/${id}`, { ...post({ version, draft }), method: 'PUT' }),

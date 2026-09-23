@@ -1196,3 +1196,29 @@ textarea {
     justify-content: flex-start;
   }
 }
+
+/* Tablet and touch layouts, including iPad portrait/landscape and Split View. */
+@media (pointer: coarse), (max-width: 1180px) {
+  .app-shell button, .app-shell select, .app-shell input:not([type='checkbox']):not([type='radio']) {
+    min-height: 44px;
+  }
+  .app-shell button { min-width: 44px; touch-action: manipulation; }
+  .app-shell input, .app-shell select, .app-shell textarea { font-size: 16px; }
+  .app-shell .pin-dialog input { font-size: 24px; }
+  .app-shell .family-checkbox, .app-shell .family-people label { min-height: 44px; }
+  .app-shell .sport-exercise { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .app-shell .sport-exercise label:first-child { grid-column: 1 / -1; }
+  .app-shell .sport-exercise > button { grid-column: 1 / -1; }
+}
+@media (min-width: 641px) and (max-width: 1180px) {
+  .app-shell { padding: 20px; }
+  .app-shell .topbar-actions { grid-template-columns: minmax(0, 1fr) 150px; }
+  .app-shell .topbar-focus { grid-column: 1 / -1; }
+  .app-shell .topbar-actions.compact { grid-template-columns: minmax(0, 1fr) 150px; }
+  .app-shell .sport-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.pin-backdrop { overflow-y: auto; overscroll-behavior: contain; }
+.pin-dialog { max-height: calc(100dvh - 36px); overflow-y: auto; }
+@media (max-height: 540px) {
+  .pin-backdrop { align-items: start; }
+}
