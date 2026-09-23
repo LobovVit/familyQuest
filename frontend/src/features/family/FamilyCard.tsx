@@ -20,7 +20,7 @@ export function FamilyCard({ entry: e, current, participants, date, busy, onEdit
     <div className="family-row"><span className="family-tag">{kindIcons[e.kind]} {kindLabels[e.kind]}</span><small>{e.date && new Date(`${e.date}T12:00:00`).toLocaleDateString('ru-RU')}</small></div>
     <h3>{e.title}</h3>
     {e.kind === 'habit' && <p className="family-tag">Награда за участие по расписанию: 5 ⭐ + 1 🙂</p>}
-    {['adventure', 'proposal'].includes(e.kind) && <p className="family-tag">После всех шагов: 20 ⭐ + 3 🙂 каждому участнику</p>}
+    {['adventure', 'proposal'].includes(e.kind) && <p className="family-tag">После всех шагов: 40 ⭐ + 3 🙂 каждому участнику</p>}
     {e.value && <p className="family-value">{e.value}</p>}
     {e.description && <p className="family-text">{e.description}</p>}
     <p className="family-muted">{(e.participantIds ?? []).length ? e.participantIds.map(name).join(', ') : 'Вся семья'} · Автор: {name(e.authorId)}</p>

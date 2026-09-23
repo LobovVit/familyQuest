@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const BackupVersion = 3
+const BackupVersion = 4
 
 type BackupData struct {
 	MathSessions       []domain.MathSession      `json:"mathSessions"`
@@ -98,7 +98,7 @@ type BackupRewardParticipant struct {
 
 // Validate rejects unsupported and unusable backups before touching stored data.
 func (b BackupData) Validate() error {
-	if b.Version != 1 && b.Version != 2 && b.Version != BackupVersion {
+	if b.Version != 1 && b.Version != 2 && b.Version != 3 && b.Version != BackupVersion {
 		return fmt.Errorf("%w: unsupported backup version %d", domain.ErrInvalidInput, b.Version)
 	}
 	hasParent := false

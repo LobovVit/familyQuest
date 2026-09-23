@@ -98,6 +98,14 @@ func (s *Store) AnswerMath(ctx context.Context, owner int64, id string, index in
 	}
 	if len(session.Answers) > count {
 		a := session.Answers[index]
+		if session.RewardVersion == 2 && a.Stars > 0 {
+			var earned int
+			if err = tx.QueryRow(ctx, `select coalesce(sum(stars),0)::int from activity_rewards where participant_id=$1 and source='math' and earned_date=$2::date`, owner, a.Date).Scan(&earned); err != nil {
+				return session, err
+			}
+			a.Stars = min(a.Stars, max(0, domain.MathDailyStarLimit-earned))
+			session.Answers[index] = a
+		}
 		if a.Stars > 0 {
 			err = insertActivityReward(ctx, tx, domain.ActivityReward{Source: "math", SourceKey: fmt.Sprintf("%s:%d", id, index), ParticipantID: owner, Date: a.Date, Stars: a.Stars, Title: "Математика " + session.Settings.Operation})
 			if err != nil {

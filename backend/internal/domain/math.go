@@ -27,7 +27,11 @@ type MathAnswer struct {
 	Stars   int            `json:"stars"`
 	Date    string         `json:"date"`
 }
+
+const MathDailyStarLimit = 30
+
 type MathSession struct {
+	RewardVersion int            `json:"rewardVersion,omitempty"`
 	Closed        bool           `json:"closed"`
 	ID            string         `json:"id"`
 	ParticipantID int64          `json:"participantId"`
@@ -81,7 +85,7 @@ func (s MathSettings) Count() int {
 		return 8
 	}
 }
-func (s MathSettings) Stars() int {
+func (s MathSettings) legacyStars() int {
 	switch s.Level {
 	case "easy":
 		return 1
@@ -91,8 +95,37 @@ func (s MathSettings) Stars() int {
 		return 3
 	}
 }
+
+// Stars rewards the selected work, not speed or a streak. Choice has less weight.
+func (s MathSettings) Stars() int {
+	stars := s.legacyStars()
+	if s.Level == "columnar" {
+		if s.Operation == "*" {
+			return 4
+		}
+		if s.Operation == ":" {
+			switch s.DivisionMode {
+			case "full":
+				return 5
+			case "steps":
+				return 4
+			default:
+				return 3
+			}
+		}
+		return 3
+	}
+	if s.Operation == "*" || s.Operation == ":" {
+		stars++
+	}
+	if s.AnswerMode == "choice" {
+		stars = maxInt(1, stars-1)
+	}
+	return stars
+}
+
 func NewMathSession(id string, p int64, settings MathSettings, now time.Time) MathSession {
-	s := MathSession{ID: id, ParticipantID: p, Settings: settings, CreatedAt: now.UTC(), Answers: []MathAnswer{}}
+	s := MathSession{RewardVersion: 2, ID: id, ParticipantID: p, Settings: settings, CreatedAt: now.UTC(), Answers: []MathAnswer{}}
 	max := 10
 	if settings.Level == "medium" {
 		max = 25
@@ -265,6 +298,9 @@ func (s *MathSession) Submit(index int, values map[string]int, now time.Time) er
 	stars := 0
 	if correct {
 		stars = s.Settings.Stars()
+		if s.RewardVersion == 0 {
+			stars = s.Settings.legacyStars()
+		}
 	}
 	s.Answers = append(s.Answers, MathAnswer{index, values, correct, stars, now.In(time.FixedZone("Europe/Minsk", 3*60*60)).Format("2006-01-02")})
 	return nil
@@ -297,7 +333,7 @@ func (s MathSession) View() MathView {
 }
 
 func (s MathSession) Validate() error {
-	if len(s.ID) != 32 || s.ParticipantID <= 0 || s.CreatedAt.IsZero() || s.Settings.Validate() != nil || len(s.Questions) != s.Settings.Count() || len(s.Answers) > len(s.Questions) {
+	if (s.RewardVersion != 0 && s.RewardVersion != 2) || len(s.ID) != 32 || s.ParticipantID <= 0 || s.CreatedAt.IsZero() || s.Settings.Validate() != nil || len(s.Questions) != s.Settings.Count() || len(s.Answers) > len(s.Questions) {
 		return ErrInvalidInput
 	}
 	for _, c := range s.ID {
@@ -334,7 +370,7 @@ func (s MathSession) Validate() error {
 			return err
 		}
 		got := check.Answers[i]
-		if got.Correct != a.Correct || got.Stars != a.Stars {
+		if got.Correct != a.Correct || a.Stars < 0 || a.Stars > got.Stars || (s.RewardVersion == 0 && got.Stars != a.Stars) {
 			return ErrInvalidInput
 		}
 	}

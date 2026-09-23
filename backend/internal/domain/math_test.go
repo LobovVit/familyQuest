@@ -74,3 +74,32 @@ func TestMathWorkMustBeCorrectAndOrdered(t *testing.T) {
 		t.Fatal("wrong carry rewarded")
 	}
 }
+
+func TestBalancedMathRewards(t *testing.T) {
+	cases := []struct {
+		level, op, mode, division string
+		want                      int
+	}{
+		{"easy", "+", "input", "full", 1}, {"easy", "*", "input", "full", 2},
+		{"medium", "+", "choice", "full", 1}, {"medium", ":", "input", "full", 3},
+		{"hard", "+", "input", "full", 3}, {"hard", "*", "choice", "full", 3},
+		{"columnar", "+", "input", "full", 3}, {"columnar", "*", "input", "full", 4},
+		{"columnar", ":", "input", "result", 3}, {"columnar", ":", "input", "steps", 4}, {"columnar", ":", "input", "full", 5},
+	}
+	for _, tc := range cases {
+		settings := MathSettings{Operation: tc.op, Level: tc.level, AnswerMode: tc.mode, DivisionMode: tc.division}
+		if got := settings.Stars(); got != tc.want {
+			t.Fatalf("%+v: %d", tc, got)
+		}
+	}
+	settings := MathSettings{Operation: "*", Level: "columnar", AnswerMode: "input", DivisionMode: "full"}
+	s := NewMathSession("0123456789abcdef0123456789abcdef", 2, settings, time.Now())
+	s.RewardVersion = 0 // Old backups and already-started sessions retain their scale.
+	_, values := s.Questions[0].Work(settings)
+	if err := s.Submit(0, values, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if s.Answers[0].Stars != 3 || s.Validate() != nil {
+		t.Fatal("legacy reward changed")
+	}
+}

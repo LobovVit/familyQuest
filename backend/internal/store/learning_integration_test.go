@@ -147,7 +147,7 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if backup.Version != 3 || len(backup.MathSessions) != 1 || len(backup.ActivityRewards) != 5 {
+	if backup.Version != application.BackupVersion || len(backup.MathSessions) != 1 || len(backup.ActivityRewards) != 5 {
 		t.Fatal("incomplete backup", len(backup.ActivityRewards))
 	}
 	if err = app.ImportBackup(ctx, p, backup); err != nil {
@@ -180,4 +180,55 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	if err != nil || len(restored) != 0 {
 		t.Fatal("legacy restore retained sessions", err)
 	}
+	// The budget belongs to the participant and calendar day, not to a session.
+	now := time.Date(2026, 9, 24, 20, 30, 0, 0, time.UTC) // 23:30 Minsk
+	for round := 0; round < 3; round++ {
+		view, err := app.StartMath(ctx, c, settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessions, err := s.ListMathSessions(ctx, child.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var training domain.MathSession
+		for _, v := range sessions {
+			if v.ID == view.ID {
+				training = v
+			}
+		}
+		total := 0
+		for i, q := range training.Questions {
+			_, answer := q.Work(settings)
+			saved, err := s.AnswerMath(ctx, child.ID, view.ID, i, answer, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !saved.Answers[i].Correct {
+				t.Fatal("budget changed correctness")
+			}
+			total += saved.Answers[i].Stars
+			if round == 0 && i == 7 && saved.Answers[i].Stars != 2 {
+				t.Fatal("partial final reward")
+			}
+		}
+		want := 30
+		if round == 1 {
+			want = 0
+		}
+		if total != want {
+			t.Fatalf("round %d stars %d want %d", round, total, want)
+		}
+		if round == 1 {
+			now = now.Add(time.Hour)
+		} // reset at Minsk midnight
+	}
+	balanced, err := app.ExportBackup(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = app.ImportBackup(ctx, p, balanced); err != nil {
+		t.Fatal("capped reward restore", err)
+	}
+
 }

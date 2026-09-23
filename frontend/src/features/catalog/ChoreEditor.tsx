@@ -70,9 +70,10 @@ export function ChoreEditor({
         </select>
       </label>
       <label>
-        Базовая ценность
+        Базовая ценность, ⭐
         <input min="1" type="number" value={draft.baseValue} onChange={(event) => setDraft({ ...draft, baseValue: Number(event.target.value) })} />
       </label>
+      <p className="settings-note">Ориентир для ребёнка: простое дело — 15–20 ⭐, обычное — 25–35 ⭐, длительное или с несколькими шагами — 40–60 ⭐. После подтверждения начисляется базовая ценность × средняя оценка / 5. Помощь взрослого в совместном деле не повод снижать оценку.</p>
       <div className="participant-picker" aria-label="Участники обязанности">
         {participants.map((person) => (
           <label className={draft.participantIds.includes(person.id) ? 'active' : ''} key={person.id}>

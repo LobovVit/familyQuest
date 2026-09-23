@@ -27,7 +27,7 @@ func FamilyRewardCandidates(before, after FamilyEntry) []ActivityReward {
 		return out
 	}
 	if after.Kind == "sport" && before.ID == 0 && len(after.ParticipantIDs) == 1 {
-		add("sport", after.Date, after.ParticipantIDs[0], after.Date, 10, 2)
+		add("sport", after.Date, after.ParticipantIDs[0], after.Date, 30, 2)
 	}
 	if after.Kind == "habit" && len(after.Events) >= len(before.Events) {
 		for _, v := range after.Events[len(before.Events):] {
@@ -65,7 +65,7 @@ func FamilyRewardCandidates(before, after FamilyEntry) []ActivityReward {
 			}
 		}
 		for _, id := range ids {
-			add("adventure", fmt.Sprint(after.ID), id, date, 20, 3)
+			add("adventure", fmt.Sprint(after.ID), id, date, 40, 3)
 		}
 	}
 	return out
