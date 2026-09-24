@@ -10,7 +10,7 @@ export function ReadingTraining() {
   const [syllable, setSyllable] = useState(0)
   const [whole, setWhole] = useState(false)
   const heading = useRef<HTMLHeadingElement>(null)
-  const cards = readingLesson(mode ?? 'syllables', round)
+  const cards = readingLesson(mode ?? 'phrases', round)
   const card = cards[index]
   const count = card?.words.flat().length ?? 0
 
@@ -27,7 +27,7 @@ export function ReadingTraining() {
       {mode && <button onClick={() => reset(null)}>К выбору занятия</button>}
     </header>
     {!mode ? <>
-      <h2>Что почитаем?</h2>
+      <h2>Выбери уровень</h2>
       <div className="reading-modes">{readingModes.map(item => <button key={item.id} onClick={() => reset(item.id)}>
         <span aria-hidden="true">{item.icon}</span><strong>{item.title}</strong><small>{item.description}</small>
       </button>)}</div>
