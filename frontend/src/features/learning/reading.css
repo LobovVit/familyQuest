@@ -1,0 +1,28 @@
+.reading-training { max-width: 1100px; margin-inline: auto; }
+.reading-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.reading-modes button { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; text-align: left; border-radius: 20px; background: #fff; color: #263c35; }
+.reading-modes button > span { font-size: 40px; }
+.reading-modes strong { font-size: 24px; }
+.reading-modes small { font-size: 16px; line-height: 1.5; }
+.reading-note { color: #58645e; font-size: 14px; line-height: 1.6; max-width: 760px; }
+.reading-progress { display: flex; align-items: center; gap: 16px; margin-top: 24px; }
+.reading-progress progress { flex: 1; min-width: 0; accent-color: #267252; }
+.reading-paper { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 20px 32px; padding: 40px 20px; margin: 24px 0; border: 1px solid #dce7dd; border-radius: 24px; background: #fffdf5; min-height: 200px; }
+.reading-word { display: inline-flex; align-items: baseline; flex-wrap: wrap; justify-content: center; font-size: clamp(32px, 5vw, 58px); font-weight: 600; color: #253c33; }
+.reading-part { display: inline-flex; align-items: center; }
+.reading-word button { font: inherit; color: inherit; padding: 10px 8px; min-height: 60px; border: 2px solid transparent; border-radius: 12px; background: transparent; }
+.reading-word button[aria-pressed=true] { border-color: #267252; background: #ddf1df; }
+.reading-divider { color: #748077; font-size: .65em; }
+.reading-actions, .reading-finish { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.reading-training button { min-height: 48px; touch-action: manipulation; }
+.reading-training button:focus-visible { outline: 3px solid #286bca; outline-offset: 4px; }
+.reading-finish { align-items: center; flex-direction: column; padding: 32px 16px; text-align: center; }
+.reading-finish > span { font-size: 64px; }
+.day-activity.reading { background: #edf5e7; }
+@media (max-width: 640px) {
+  .reading-modes { grid-template-columns: 1fr; }
+  .reading-modes button { padding: 20px; }
+  .reading-paper { padding: 24px 8px; gap: 16px; }
+  .reading-actions { flex-direction: column; }
+  .reading-training .family-row { align-items: stretch; flex-direction: column; }
+}

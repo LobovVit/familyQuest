@@ -26,6 +26,7 @@ export function MyDay({ participant, tasks, assignments, summary, loading, busyT
   <div className="day-section-heading"><div><p className="eyebrow">Время для себя и семьи</p><h2>Чем займёмся?</h2></div></div>
   <div className="day-activities">
    {child && <button className="day-activity math" onClick={() => onNavigate('math')}><span aria-hidden="true">🔢</span><strong>Поиграем с числами</strong><small>Решай примеры и открывай новое</small><b>Начать →</b></button>}
+   {child && <button className="day-activity reading" onClick={() => onNavigate('reading')}><span aria-hidden="true">📖</span><strong>Почитаем по слогам</strong><small>Слоги, слова и маленькие истории</small><b>Читать →</b></button>}
    <button className="day-activity sport" onClick={() => onNavigate('sport')}><span aria-hidden="true">🏃</span><strong>Время двигаться</strong><small>Запиши занятие и посмотри свой прогресс</small><b>К спорту →</b></button>
    <button className="day-activity adventure" onClick={() => onNavigate('family')}><span aria-hidden="true">🧭</span><strong>Маленькое приключение</strong><small>Привычки, открытия и время вместе</small><b>Выбрать →</b></button>
   </div>

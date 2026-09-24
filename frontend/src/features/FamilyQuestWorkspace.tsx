@@ -5,6 +5,7 @@ import { useParentConfirmation } from '../application/useParentConfirmation'
 import { ParentConfirmation } from './session/ParentConfirmation'
 import { Devices } from './session/Devices'
 import type { LoginOptions } from '../domain/devices'
+import { ReadingTraining } from './learning/ReadingTraining'
 import { MathTraining } from './learning/MathTraining'
 import { ActivityRewards } from './learning/ActivityRewards'
 import { FamilyOverview } from './overview/FamilyOverview'
@@ -70,7 +71,7 @@ export function FamilyQuestWorkspace() {
   useEffect(() => { if (data.loadError) setError(data.loadError) }, [data.loadError])
 
   const availableTabs = useMemo(() => {
-    return tabs.filter((tab) => (tab.id !== 'today' || currentParticipant?.role === 'child' || currentParticipant?.role === 'parent') && (tab.id !== 'math' || currentParticipant?.role === 'child') && (!['family', 'sport', 'earned'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
+    return tabs.filter((tab) => (tab.id !== 'today' || currentParticipant?.role === 'child' || currentParticipant?.role === 'parent') && (!['math', 'reading'].includes(tab.id) || currentParticipant?.role === 'child') && (!['family', 'sport', 'earned'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
   }, [currentParticipant])
 
   useEffect(() => {
@@ -481,6 +482,7 @@ export function FamilyQuestWorkspace() {
       {!currentParticipant && activeTab === 'day' && <FamilyOverview date={selectedDate} participants={participants} />}
 
       {activeTab === 'today' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <MyDay participant={currentParticipant} tasks={tasks} assignments={assignments} summary={dayLeaderboard.find(entry => entry.participantId === currentParticipant.id)} loading={isLoading} busyTask={busyTask} reviewCount={tasksForReview.length} onComplete={completeTask} onNavigate={setActiveTab} />}
+      {activeTab === 'reading' && currentParticipant?.role === 'child' && <ReadingTraining key={currentParticipant.id} />}
       {activeTab === 'math' && currentParticipant?.role === 'child' && <MathTraining key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
       {activeTab === 'earned' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <ActivityRewards key={currentParticipant.id} />}
 
