@@ -71,6 +71,9 @@ func (s *Service) ForgetDevice(ctx context.Context, secret string) error {
 	return s.repo.RevokeDeviceToken(ctx, deviceHash(secret))
 }
 func (s *Service) Devices(ctx context.Context, p domain.Principal) ([]domain.TrustedDevice, error) {
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return nil, domain.ErrForbidden
+	}
 	if !p.IsParent() {
 		return nil, domain.ErrForbidden
 	}
@@ -81,6 +84,9 @@ func (s *Service) Devices(ctx context.Context, p domain.Principal) ([]domain.Tru
 	return ds, err
 }
 func (s *Service) ConfirmParent(ctx context.Context, p domain.Principal, pin string) (string, error) {
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return "", domain.ErrForbidden
+	}
 	if !p.IsParent() {
 		return "", domain.ErrForbidden
 	}
@@ -97,11 +103,14 @@ func (s *Service) ConfirmParent(ctx context.Context, p domain.Principal, pin str
 	return s.tokens.IssueConfirmation(p)
 }
 func (s *Service) CheckConfirmation(ctx context.Context, p domain.Principal, proof string) error {
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.ErrForbidden
+	}
 	if !p.IsParent() || proof == "" {
 		return domain.ErrForbidden
 	}
 	v, err := s.tokens.Parse(proof)
-	if err != nil || !p.IsParent() || v.ConfirmedUntil <= s.now().Unix() || v.ParticipantID != p.ParticipantID || v.SessionVersion != p.SessionVersion || v.Role != p.Role || v.DeviceID != p.DeviceID {
+	if err != nil || !p.IsParent() || v.ConfirmedUntil <= s.now().Unix() || v.FamilyID != p.FamilyID || v.ParticipantID != p.ParticipantID || v.SessionVersion != p.SessionVersion || v.Role != p.Role || v.DeviceID != p.DeviceID {
 		return domain.ErrForbidden
 	}
 	current, err := s.repo.GetParticipant(ctx, p.ParticipantID)
@@ -117,6 +126,9 @@ func (s *Service) CheckConfirmation(ctx context.Context, p domain.Principal, pro
 	return nil
 }
 func (s *Service) RemoveDevice(ctx context.Context, p domain.Principal, id, proof string) error {
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.ErrForbidden
+	}
 	if err := s.CheckConfirmation(ctx, p, proof); err != nil {
 		return err
 	}

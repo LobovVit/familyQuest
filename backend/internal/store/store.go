@@ -18,7 +18,9 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	db       sqlDB
+	familyID int64
 }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
@@ -30,7 +32,7 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, db: pool}, nil
 }
 
 func (s *Store) Close() {
@@ -105,7 +107,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
-	rows, err := s.pool.Query(ctx, `select id, name, role, active, created_at from participants where active = true order by id`)
+	rows, err := s.db.Query(ctx, `select id, name, role, active, created_at from participants where active = true order by id`)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +119,7 @@ func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
 		if err := rows.Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt); err != nil {
 			return nil, err
 		}
+		p.FamilyID = s.familyID
 		participants = append(participants, p)
 	}
 	return participants, rows.Err()
@@ -124,10 +127,11 @@ func (s *Store) ListParticipants(ctx context.Context) ([]Participant, error) {
 
 func (s *Store) GetParticipant(ctx context.Context, id int64) (Participant, error) {
 	var p Participant
-	err := s.pool.QueryRow(ctx, `select id,name,role,active,created_at,session_version from participants where id=$1 and active=true`, id).Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt, &p.SessionVersion)
+	err := s.db.QueryRow(ctx, `select id,name,role,active,created_at,session_version from participants where id=$1 and active=true`, id).Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt, &p.SessionVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, domain.ErrUnauthorized
 	}
+	p.FamilyID = s.familyID
 	return p, err
 }
 
@@ -136,13 +140,37 @@ func (s *Store) CreateParticipant(ctx context.Context, participant Participant, 
 		participant.Role = "child"
 	}
 	if err := domain.ValidatePIN(pin); err != nil {
+		participant.FamilyID = s.familyID
 		return participant, err
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
 	if err != nil {
+		participant.FamilyID = s.familyID
 		return participant, err
 	}
-	err = s.pool.QueryRow(ctx, `
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return participant, err
+	}
+	defer rollback(tx)
+	var limit int
+	var until *time.Time
+	if err = tx.QueryRow(ctx, `select child_limit,access_until from service_policy where id for update`).Scan(&limit, &until); err != nil {
+		return participant, err
+	}
+	if s.familyID > 0 && until != nil && !time.Now().Before(*until) {
+		return participant, domain.ErrForbidden
+	}
+	if participant.Role == domain.RoleChild {
+		var count int
+		if err = tx.QueryRow(ctx, `select count(*) from participants where active and role='child'`).Scan(&count); err != nil {
+			return participant, err
+		}
+		if count >= limit {
+			return participant, domain.ErrConflict
+		}
+	}
+	err = tx.QueryRow(ctx, `
 		insert into participants (name, role, pin_code, pin_hash, active)
 		values ($1, $2, null, $3, true)
 		on conflict (name) do nothing
@@ -151,17 +179,28 @@ func (s *Store) CreateParticipant(ctx context.Context, participant Participant, 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return participant, domain.ErrConflict
 	}
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
+	participant.FamilyID = s.familyID
 	return participant, err
 }
 
 func (s *Store) DeleteParticipant(ctx context.Context, participantID int64) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `lock table participants in share row exclusive mode`); err != nil {
 		return err
+	}
+	var owner *int64
+	if err := tx.QueryRow(ctx, `select owner_participant_id from service_policy where id`).Scan(&owner); err != nil {
+		return err
+	}
+	if owner != nil && *owner == participantID {
+		return domain.ErrConflict
 	}
 	var lastParent bool
 	if err := tx.QueryRow(ctx, `select exists(select 1 from participants where id=$1 and active and role='parent') and (select count(*) from participants where active and role='parent')=1`, participantID).Scan(&lastParent); err != nil {
@@ -195,9 +234,10 @@ func (s *Store) UpdateParticipantPIN(ctx context.Context, participantID int64, p
 	var participant Participant
 	hash, err := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
 	if err != nil {
+		participant.FamilyID = s.familyID
 		return participant, err
 	}
-	err = s.pool.QueryRow(ctx, `
+	err = s.db.QueryRow(ctx, `
 		update participants
 		set pin_code = null, pin_hash = $2, session_version = session_version + 1
 		where id = $1 and active = true
@@ -206,13 +246,14 @@ func (s *Store) UpdateParticipantPIN(ctx context.Context, participantID int64, p
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Participant{}, ErrNotFound
 	}
+	participant.FamilyID = s.familyID
 	return participant, err
 }
 
 func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, pin string) (Participant, error) {
 	var participant Participant
 	var legacy, hash *string
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		select id, name, role, active, created_at, pin_code, coalesce(pin_hash, ''), session_version
 		from participants
 		where id = $1 and active = true
@@ -229,7 +270,7 @@ func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, p
 		if hashErr != nil {
 			return Participant{}, hashErr
 		}
-		if _, hashErr = s.pool.Exec(ctx, `update participants set pin_hash=$2, pin_code=null where id=$1 and pin_code=$3 and coalesce(pin_hash,'')=''`, participantID, string(newHash), pin); hashErr != nil {
+		if _, hashErr = s.db.Exec(ctx, `update participants set pin_hash=$2, pin_code=null where id=$1 and pin_code=$3 and coalesce(pin_hash,'')=''`, participantID, string(newHash), pin); hashErr != nil {
 			return Participant{}, hashErr
 		}
 		valid = true
@@ -237,12 +278,13 @@ func (s *Store) VerifyParticipantPIN(ctx context.Context, participantID int64, p
 	if !valid {
 		return Participant{}, domain.ErrInvalidPIN
 	}
+	participant.FamilyID = s.familyID
 	return participant, nil
 }
 
 func (s *Store) TaskOwner(ctx context.Context, taskID int64) (int64, error) {
 	var id int64
-	err := s.pool.QueryRow(ctx, `select a.participant_id from tasks t join assignments a on a.id=t.assignment_id where t.id=$1`, taskID).Scan(&id)
+	err := s.db.QueryRow(ctx, `select a.participant_id from tasks t join assignments a on a.id=t.assignment_id where t.id=$1`, taskID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, domain.ErrNotFound
 	}
@@ -250,7 +292,7 @@ func (s *Store) TaskOwner(ctx context.Context, taskID int64) (int64, error) {
 }
 
 func (s *Store) ListChores(ctx context.Context) ([]Chore, error) {
-	rows, err := s.pool.Query(ctx, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at from chores where active = true order by id`)
+	rows, err := s.db.Query(ctx, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at from chores where active = true order by id`)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +323,7 @@ func (s *Store) CreateChore(ctx context.Context, chore Chore) (Chore, error) {
 	if err != nil {
 		return chore, err
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return chore, err
 	}
@@ -319,7 +361,7 @@ func (s *Store) UpdateChore(ctx context.Context, chore Chore) (Chore, error) {
 	if err != nil {
 		return chore, err
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return chore, err
 	}
@@ -364,7 +406,7 @@ func (s *Store) UpdateChore(ctx context.Context, chore Chore) (Chore, error) {
 }
 
 func (s *Store) ListAssignments(ctx context.Context) ([]Assignment, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		select a.id, a.chore_id, a.participant_id, c.title, p.name, c.schedule, c.time_window, c.benefit_type, c.execution_mode, c.base_value, a.created_at
 		from assignments a
 		join chores c on c.id = a.chore_id
@@ -390,7 +432,7 @@ func (s *Store) ListAssignments(ctx context.Context) ([]Assignment, error) {
 
 func (s *Store) CreateAssignment(ctx context.Context, choreID, participantID int64) (Assignment, error) {
 	var assignment Assignment
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		insert into assignments (chore_id, participant_id)
 		values ($1, $2)
 		on conflict (chore_id, participant_id) do update set active = true
@@ -421,7 +463,7 @@ func (s *Store) loadChoreParticipants(ctx context.Context, chores []Chore) error
 		ids = append(ids, chores[index].ID)
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		select a.chore_id, p.id, p.name
 		from assignments a
 		join participants p on p.id = a.participant_id
@@ -472,9 +514,18 @@ func syncChoreParticipants(ctx context.Context, tx pgx.Tx, choreID int64, partic
 }
 
 func (s *Store) EnsureTasksForDate(ctx context.Context, dueDate time.Time) error {
+	if s.familyID > 0 {
+		if e := s.CheckWriteAccess(ctx); e != nil {
+			if errors.Is(e, domain.ErrForbidden) {
+				return nil
+			}
+			return e
+		}
+	}
+
 	weekStart, _ := periodBounds("week", dueDate)
 	monthStart, _ := periodBounds("month", dueDate)
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		insert into tasks (assignment_id, due_date)
 		select a.id,
 		       case
@@ -501,7 +552,7 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 	}
 	weekStart, _ := periodBounds("week", dueDate)
 	monthStart, _ := periodBounds("month", dueDate)
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		select t.id, t.assignment_id, a.chore_id, a.participant_id, c.title, c.description, p.name, t.due_date::text,
 		       c.schedule, c.time_window, c.benefit_type, c.execution_mode, t.status, t.completed_at, t.confirmed_at,
 		       coalesce(avg(conf.rating), 0)::float,
@@ -551,7 +602,7 @@ func (s *Store) ListWeekPlan(ctx context.Context, at time.Time) ([]WeekPlanItem,
 		}
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		with daily_weekly as (
 			select a.id as assignment_id,
 			       a.chore_id,
@@ -633,7 +684,7 @@ func (s *Store) ListWeekPlan(ctx context.Context, at time.Time) ([]WeekPlanItem,
 
 func (s *Store) CompleteTask(ctx context.Context, taskID, participantID int64) (Task, error) {
 	var dueDate time.Time
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		update tasks
 		set status = 'completed', completed_by = $2, completed_at = now()
 		where id = $1 and status in ('pending', 'needs_work')
@@ -654,7 +705,7 @@ func (s *Store) ConfirmTask(ctx context.Context, taskID, participantID int64, ra
 		return Task{}, ErrInvalidRating
 	}
 	var dueDate time.Time
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Task{}, err
 	}
@@ -695,7 +746,7 @@ func (s *Store) RateBehavior(ctx context.Context, ratedDate time.Time, raterID, 
 		return BehaviorRating{}, ErrInvalidRating
 	}
 	var behavior BehaviorRating
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		insert into behavior_ratings (rated_date, rater_participant_id, target_participant_id, rating, comment)
 		values ($1::date, $2, $3, $4, $5)
 		on conflict (rated_date, rater_participant_id, target_participant_id)
@@ -707,7 +758,7 @@ func (s *Store) RateBehavior(ctx context.Context, ratedDate time.Time, raterID, 
 }
 
 func (s *Store) ListBehaviorRatings(ctx context.Context, ratedDate time.Time) ([]BehaviorRating, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		select id, rated_date::text, rater_participant_id, target_participant_id, rating, comment, created_at
 		from behavior_ratings
 		where rated_date = $1::date
@@ -731,7 +782,7 @@ func (s *Store) ListBehaviorRatings(ctx context.Context, ratedDate time.Time) ([
 
 func (s *Store) GetTask(ctx context.Context, taskID int64, _ time.Time) (Task, error) {
 	var task Task
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
  select t.id, t.assignment_id, a.chore_id, a.participant_id, c.title, c.description, p.name, t.due_date::text,
  c.schedule, c.time_window, c.benefit_type, c.execution_mode, t.status, t.completed_at, t.confirmed_at,
  coalesce(avg(conf.rating),0)::float,
@@ -750,7 +801,7 @@ func (s *Store) GetTask(ctx context.Context, taskID int64, _ time.Time) (Task, e
 
 func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([]LeaderboardEntry, error) {
 	start, end := periodBounds(period, at)
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		select p.id, p.name,
 		       coalesce(activity.tasks_done, 0)::int as tasks_done,
 		       coalesce(planned.tasks_assigned, 0)::int as tasks_assigned,
@@ -819,7 +870,7 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 }
 
 func (s *Store) ListRewards(ctx context.Context) ([]Reward, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		select id, title, description, period, reward_type, star_cost, smile_cost, active, created_at
 		from rewards
 		where active = true
@@ -855,7 +906,7 @@ func (s *Store) CreateReward(ctx context.Context, reward Reward) (Reward, error)
 	if err != nil {
 		return reward, err
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return reward, err
 	}
@@ -889,7 +940,7 @@ func (s *Store) CreateReward(ctx context.Context, reward Reward) (Reward, error)
 }
 
 func (s *Store) DeleteReward(ctx context.Context, rewardID int64) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -916,7 +967,7 @@ func (s *Store) loadRewardParticipants(ctx context.Context, rewards []Reward) er
 		rewardByID[rewards[index].ID] = &rewards[index]
 		ids = append(ids, rewards[index].ID)
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		select rp.reward_id, p.id, p.name
 		from reward_participants rp
 		join participants p on p.id = rp.participant_id

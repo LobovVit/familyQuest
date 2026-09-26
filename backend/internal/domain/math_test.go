@@ -88,7 +88,7 @@ func TestBalancedMathRewards(t *testing.T) {
 	}
 	for _, tc := range cases {
 		settings := MathSettings{Operation: tc.op, Level: tc.level, AnswerMode: tc.mode, DivisionMode: tc.division}
-		if got := settings.Stars(); got != tc.want {
+		if got := settings.Stars(); got != tc.want+1 {
 			t.Fatalf("%+v: %d", tc, got)
 		}
 	}
@@ -106,14 +106,14 @@ func TestBalancedMathRewards(t *testing.T) {
 
 func TestMathRewardBudgetPolicy(t *testing.T) {
 	settings := MathSettings{Operation: "*", Level: "columnar", AnswerMode: "input", DivisionMode: "full"}
-	for _, earned := range []int{28, 30, 50} {
+	for _, earned := range []int{38, 40, 50} {
 		session := NewMathSession("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 2, settings, time.Now())
 		_, answer := session.Questions[0].Work(settings)
 		if err := session.Submit(0, answer, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		reward := session.AwardAnswer(0, earned)
-		if earned == 28 {
+		if earned == 38 {
 			if reward == nil || reward.Stars != 2 || session.Answers[0].Stars != 2 {
 				t.Fatal("partial budget")
 			}

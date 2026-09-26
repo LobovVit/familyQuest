@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lobov/familyquest/backend/internal/domain"
@@ -17,9 +19,21 @@ func cookieValue(r *http.Request) string {
 	if err != nil {
 		return ""
 	}
+	if family, ok := r.Context().Value(familyContextKey{}).(int64); ok {
+		prefix := strconv.FormatInt(family, 10) + "."
+		if !strings.HasPrefix(c.Value, prefix) {
+			return ""
+		}
+		return strings.TrimPrefix(c.Value, prefix)
+	}
 	return c.Value
 }
 func setDeviceCookie(w http.ResponseWriter, r *http.Request, value string) {
+	if value != "" {
+		if family, ok := r.Context().Value(familyContextKey{}).(int64); ok {
+			value = strconv.FormatInt(family, 10) + "." + value
+		}
+	}
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
@@ -69,7 +83,7 @@ func (s *Server) requestPrincipal(w http.ResponseWriter, r *http.Request) (domai
 	if r.Method == http.MethodGet && r.URL.Path == "/api/session" {
 		setDeviceCookie(w, r, secret)
 	}
-	return domain.Principal{ParticipantID: p.ID, Role: p.Role, SessionVersion: p.SessionVersion, DeviceID: d.ID}, nil
+	return domain.Principal{FamilyID: p.FamilyID, ParticipantID: p.ID, Role: p.Role, SessionVersion: p.SessionVersion, DeviceID: d.ID}, nil
 }
 func (s *Server) deviceRoutes() {
 	s.mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {

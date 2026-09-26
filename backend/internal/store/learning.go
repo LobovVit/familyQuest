@@ -14,7 +14,7 @@ func insertActivityReward(ctx context.Context, tx pgx.Tx, r domain.ActivityRewar
 	return err
 }
 func (s *Store) CreateMathSession(ctx context.Context, session domain.MathSession) (domain.MathSession, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return session, err
 	}
@@ -36,6 +36,17 @@ func (s *Store) CreateMathSession(ctx context.Context, session domain.MathSessio
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return session, err
 	}
+	if s.familyID > 0 {
+		var profile domain.LearningProfile
+		if err = tx.QueryRow(ctx, `select coalesce(birth_date::text,''),math_level,reading_level from participants where id=$1`, session.ParticipantID).Scan(&profile.BirthDate, &profile.MathLevel, &profile.ReadingLevel); err != nil {
+			return session, err
+		}
+		policy := profile.Policy(session.CreatedAt)
+		if !policy.AllowsMath(session.Settings) {
+			return session, domain.ErrForbidden
+		}
+		session.PolicyVersion = policy.Version
+	}
 	raw, err = json.Marshal(session)
 	if err != nil {
 		return session, err
@@ -47,7 +58,7 @@ func (s *Store) CreateMathSession(ctx context.Context, session domain.MathSessio
 	return session, tx.Commit(ctx)
 }
 func (s *Store) ListMathSessions(ctx context.Context, id int64) ([]domain.MathSession, error) {
-	rows, err := s.pool.Query(ctx, `select data from math_sessions where participant_id=$1 order by created_at desc limit 100`, id)
+	rows, err := s.db.Query(ctx, `select data from math_sessions where participant_id=$1 order by created_at desc limit 100`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +79,7 @@ func (s *Store) ListMathSessions(ctx context.Context, id int64) ([]domain.MathSe
 }
 func (s *Store) AnswerMath(ctx context.Context, owner int64, id string, index int, values map[string]int, now time.Time) (domain.MathSession, error) {
 	var session domain.MathSession
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return session, err
 	}
@@ -116,7 +127,7 @@ func (s *Store) AnswerMath(ctx context.Context, owner int64, id string, index in
 	return session, tx.Commit(ctx)
 }
 func (s *Store) ActivityRewards(ctx context.Context, id int64) ([]domain.ActivityReward, error) {
-	rows, err := s.pool.Query(ctx, `select source,source_key,participant_id,earned_date::text,stars,smiles,title from activity_rewards where participant_id=$1 order by earned_date desc,source,source_key limit 200`, id)
+	rows, err := s.db.Query(ctx, `select source,source_key,participant_id,earned_date::text,stars,smiles,title from activity_rewards where participant_id=$1 order by earned_date desc,source,source_key limit 200`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +146,7 @@ func (s *Store) ActivityRewards(ctx context.Context, id int64) ([]domain.Activit
 func (s *Store) FinishMath(ctx context.Context, owner int64, id string) (domain.MathSession, error) {
 	var session domain.MathSession
 	var raw []byte
-	err := s.pool.QueryRow(ctx, `update math_sessions set data=jsonb_set(data,'{closed}','true') where id=$1 and participant_id=$2 returning data`, id, owner).Scan(&raw)
+	err := s.db.QueryRow(ctx, `update math_sessions set data=jsonb_set(data,'{closed}','true') where id=$1 and participant_id=$2 returning data`, id, owner).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return session, domain.ErrNotFound
 	}

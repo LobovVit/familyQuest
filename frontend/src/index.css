@@ -54,3 +54,6 @@ body {
 .pin-dialog .remember-choice { display:flex; align-items:center; gap:12px; min-height:44px; }
 .pin-dialog .remember-choice input { width:24px; height:24px; flex:0 0 24px; }
 .pin-dialog p { margin:0; font-size:14px; line-height:1.4; }
+
+.account-entry { max-width: 520px; margin: 6vh auto; padding: 20px; }
+.account-entry input { width: 100%; box-sizing: border-box; }

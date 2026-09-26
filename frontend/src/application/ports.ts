@@ -1,3 +1,5 @@
+import type { LearningProfile, LearningPolicy, FamilySubscription } from '../domain/subscription'
+import type { ReadingMode } from '../domain/reading'
 import type { LoginOptions, TrustedDevice } from '../domain/devices'
 import type { MathSettings, MathView, ActivityReward } from '../domain/learning'
 import type { FamilyOverview, FamilyAction, FamilyDraft, FamilyEntry, FamilyKind } from '../domain/family'
@@ -6,6 +8,14 @@ import type { Assignment, BehaviorRating, Chore, ChoreDraft, LeaderboardEntry, L
 export type ParticipantDraft = { name: string; role: Participant['role']; pin: string }
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
+ config(): Promise<{saas: boolean}>
+ accountLogin(email: string, password: string): Promise<LoginResponse>
+ subscription(): Promise<FamilySubscription>
+ learningPolicy(): Promise<LearningPolicy>
+ learningProfile(id: number): Promise<LearningProfile>
+ saveLearningProfile(id: number, profile: LearningProfile): Promise<unknown>
+ startReading(id: string, level: ReadingMode): Promise<unknown>
+ completeReading(id: string, level: ReadingMode): Promise<ActivityReward>
  finishMath(id: string): Promise<MathView>
  mathSessions(): Promise<MathView[]>
  startMath(settings: MathSettings): Promise<MathView>

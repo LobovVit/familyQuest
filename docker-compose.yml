@@ -27,6 +27,8 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8088}
       FAMILYQUEST_SEED_FILE: /app/seed/familyquest-backup.json
       SESSION_SECRET: ${SESSION_SECRET:-dev-only-change-me-32-characters!!}
+      FAMILYQUEST_SAAS: ${FAMILYQUEST_SAAS:-0}
+      FAMILYQUEST_SKIP_MIGRATIONS: ${FAMILYQUEST_SKIP_MIGRATIONS:-0}
       SESSION_TTL: ${SESSION_TTL:-12h}
     volumes:
       - ./backend/seed:/app/seed:ro

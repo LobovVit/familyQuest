@@ -72,8 +72,8 @@ export function Settings(props:Props){const {participants,tasks,rewards,pinEdit,
                     value={newParticipant.role}
                     onChange={(event) => setNewParticipant({ ...newParticipant, role: event.target.value as Participant['role'] })}
                   >
-                    <option value="child">Дошкольник</option>
-                    <option value="school">Школьник</option>
+                    <option value="child">Ребёнок</option>
+                    {!participants.some(p=>p.familyId) && <option value="school">Школьник (старый профиль)</option>}
                     <option value="parent">Взрослый</option>
                   </select>
                 </label>

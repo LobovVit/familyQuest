@@ -3,6 +3,14 @@ import { api, ApiError } from './apiClient'
 
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
 export const gateway: FamilyQuestGateway = {
+ config: () => api('/api/config'),
+ accountLogin: (email, password) => api('/api/account/login', post({email, password})),
+ subscription: () => api('/api/subscription'),
+ learningPolicy: () => api('/api/learning-policy'),
+ learningProfile: id => api(`/api/participants/${id}/learning`),
+ saveLearningProfile: (id, profile) => api(`/api/participants/${id}/learning`, {...post(profile), method: 'PUT'}),
+ startReading: (id,level) => api('/api/reading/start',post({id,level})),
+ completeReading: (id, level) => api('/api/reading/complete', post({ id, level })),
  finishMath: id => api(`/api/math/${encodeURIComponent(id)}/finish`, post({})),
  mathSessions: () => api('/api/math'),
  startMath: settings => api('/api/math', post(settings)),

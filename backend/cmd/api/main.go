@@ -31,27 +31,32 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := db.Migrate(ctx); err != nil {
-		log.Fatalf("migrate database: %v", err)
-	}
+	if cfg.Migrate {
+		if err := db.Migrate(ctx); err != nil {
+			log.Fatalf("migrate database: %v", err)
+		}
 
-	hasData, err := db.HasAnyData(ctx)
-	if err != nil {
-		log.Fatalf("check seed state: %v", err)
 	}
-	seedPath := store.ResolveSeedPath(cfg.SeedFile)
-	if !hasData {
-		imported, err := db.SeedFromBackupFile(ctx, seedPath)
+	if !cfg.SaaS {
+		hasData, err := db.HasAnyData(ctx)
 		if err != nil {
-			log.Fatalf("seed database from %s: %v", seedPath, err)
+			log.Fatalf("check seed state: %v", err)
 		}
-		if imported {
-			log.Printf("seeded database from %s", seedPath)
+		seedPath := store.ResolveSeedPath(cfg.SeedFile)
+		if !hasData && !cfg.SaaS {
+			imported, err := db.SeedFromBackupFile(ctx, seedPath)
+			if err != nil {
+				log.Fatalf("seed database from %s: %v", seedPath, err)
+			}
+			if imported {
+				log.Printf("seeded database from %s", seedPath)
+			} else {
+				log.Printf("seed file %s not found; starting with empty database", seedPath)
+			}
 		} else {
-			log.Printf("seed file %s not found; starting with empty database", seedPath)
+			log.Printf("database already has data; seed import skipped")
 		}
-	} else {
-		log.Printf("database already has data; seed import skipped")
+
 	}
 
 	tokens, err := auth.New(cfg.SessionSecret, cfg.SessionTTL)
@@ -59,9 +64,45 @@ func main() {
 		log.Fatalf("configure sessions: %v", err)
 	}
 	app := application.New(db, tokens)
+	var handler http.Handler = httpapi.NewServer(app, cfg.CORSOrigin)
+	if cfg.SaaS {
+		platform := store.NewPlatform(db)
+		if !cfg.Migrate {
+			if err := platform.CheckRuntime(ctx); err != nil {
+				log.Fatal(err)
+			}
+		}
+		if cfg.Migrate {
+			if err := platform.Migrate(ctx); err != nil {
+				log.Fatal(err)
+			}
+			if err := platform.MigrateFamilies(ctx); err != nil {
+				log.Fatal(err)
+			}
+		}
+		tenantHandler := httpapi.NewSaaS(platform, func(ctx context.Context, id int64) (*application.Service, error) {
+			repo, err := platform.Family(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			return application.NewForFamily(repo, tokens.ForFamily(id), id), nil
+		}, tokens, cfg.CORSOrigin)
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "GET" && r.URL.Path == "/api/health" {
+				if db.Ping(r.Context()) != nil {
+					http.Error(w, "unavailable", 503)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"ok"}`))
+				return
+			}
+			tenantHandler.ServeHTTP(w, r)
+		})
+	}
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(app, cfg.CORSOrigin),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

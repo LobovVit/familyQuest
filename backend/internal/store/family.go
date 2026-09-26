@@ -39,7 +39,7 @@ func scanFamilyEntry(row pgx.Row) (domain.FamilyEntry, error) {
 const familyColumns = "id, version, author_id, created_at, updated_at, data"
 
 func (s *Store) ListFamilyEntries(ctx context.Context) ([]domain.FamilyEntry, error) {
-	rows, err := s.pool.Query(ctx, "select "+familyColumns+" from family_entries order by id desc")
+	rows, err := s.db.Query(ctx, "select "+familyColumns+" from family_entries order by id desc")
 	if err != nil {
 		return nil, err
 	}
@@ -55,10 +55,10 @@ func (s *Store) ListFamilyEntries(ctx context.Context) ([]domain.FamilyEntry, er
 	return result, rows.Err()
 }
 func (s *Store) GetFamilyEntry(ctx context.Context, id int64) (domain.FamilyEntry, error) {
-	return scanFamilyEntry(s.pool.QueryRow(ctx, "select "+familyColumns+" from family_entries where id=$1", id))
+	return scanFamilyEntry(s.db.QueryRow(ctx, "select "+familyColumns+" from family_entries where id=$1", id))
 }
 func (s *Store) SaveFamilyEntry(ctx context.Context, e domain.FamilyEntry) (domain.FamilyEntry, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return e, err
 	}

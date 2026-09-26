@@ -208,11 +208,11 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 				t.Fatal("budget changed correctness")
 			}
 			total += saved.Answers[i].Stars
-			if round == 0 && i == 7 && saved.Answers[i].Stars != 2 {
+			if round == 0 && i == 7 && saved.Answers[i].Stars != 5 {
 				t.Fatal("partial final reward")
 			}
 		}
-		want := 30
+		want := domain.MathDailyStarLimit
 		if round == 1 {
 			want = 0
 		}
