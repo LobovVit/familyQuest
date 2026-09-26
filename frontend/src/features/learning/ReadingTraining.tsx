@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { readingLesson, readingModes, type ReadingMode } from '../../domain/reading'
+import { readingLesson, readingModes, readingTextCount, type ReadingMode } from '../../domain/reading'
 import '../family/family.css'
 import './reading.css'
 
@@ -29,7 +29,7 @@ export function ReadingTraining() {
     {!mode ? <>
       <h2>Выбери уровень</h2>
       <div className="reading-modes">{readingModes.map(item => <button key={item.id} onClick={() => reset(item.id)}>
-        <span aria-hidden="true">{item.icon}</span><strong>{item.title}</strong><small>{item.description}</small>
+        <span aria-hidden="true">{item.icon}</span><strong>{item.title}</strong><small>{item.description}</small><small>{readingTextCount(item.id)} текстов · {readingTextCount(item.id) / 6} занятий</small>
       </button>)}</div>
       <p>В занятии 6 карточек. Без спешки — любую можно прочитать ещё раз.</p>
       <p className="reading-note">Для взрослого: слушайте ребёнка и помогайте при необходимости. Кнопка «Прочитано» отмечает прохождение карточки, а не проверяет произношение. Звёзды не начисляются; после выхода из раздела занятие начнётся заново.</p>

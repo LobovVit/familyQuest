@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import { ReadingTraining } from './ReadingTraining'
-import { readingLesson, readingModes } from '../../domain/reading'
+import { readingLesson, readingModes, readingTextCount } from '../../domain/reading'
 afterEach(cleanup)
 it('allows following syllables and switching to whole words', () => {
   render(<ReadingTraining />)
@@ -29,7 +29,7 @@ it('finishes six cards, offers new material and resets on returning to the menu'
   expect(screen.getByRole('progressbar').getAttribute('value')).toBe('0')
 })
 it('keeps one vowel per syllable while allowing consonant-only prepositions', () => {
-  for (const mode of readingModes) for (let round = 0; round < 8; round++) {
+  for (const mode of readingModes) for (let round = 0; round < readingTextCount(mode.id) / 6; round++) {
     const lesson = readingLesson(mode.id, round)
     expect(lesson).toHaveLength(6)
     for (const card of lesson) for (const word of card.words) for (const syllable of word) {
@@ -42,9 +42,20 @@ it('keeps one vowel per syllable while allowing consonant-only prepositions', ()
 it('increases sentence length across all three levels', () => {
   const ranges = [[2, 4], [5, 7], [8, 12]]
   readingModes.forEach((mode, level) => {
-    for (let round = 0; round < 2; round++) for (const card of readingLesson(mode.id, round)) {
+    for (let round = 0; round < readingTextCount(mode.id) / 6; round++) for (const card of readingLesson(mode.id, round)) {
       expect(card.words.length).toBeGreaterThanOrEqual(ranges[level][0])
       expect(card.words.length).toBeLessThanOrEqual(ranges[level][1])
     }
   })
+})
+
+it('offers 120 unique texts per level before repeating the first lesson', () => {
+  for (const mode of readingModes) {
+    expect(readingTextCount(mode.id)).toBe(120)
+    const texts = Array.from({ length: 20 }, (_, round) => readingLesson(mode.id, round))
+      .flat().map(card => card.words.map(word => word.join('')).join(' ').toLowerCase())
+    expect(new Set(texts).size).toBe(120)
+    expect(readingLesson(mode.id, 20)).toEqual(readingLesson(mode.id, 0))
+    expect(texts.every(text => /^[а-яё]/i.test(text) && /[.!?]$/.test(text))).toBe(true)
+  }
 })
