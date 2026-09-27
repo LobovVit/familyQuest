@@ -57,3 +57,6 @@ body {
 
 .account-entry { max-width: 520px; margin: 6vh auto; padding: 20px; }
 .account-entry input { width: 100%; box-sizing: border-box; }
+
+.app-version { max-width: 1200px; margin: 24px auto; padding: 0 20px; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.app-version summary { cursor: pointer; }
