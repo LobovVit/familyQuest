@@ -11,6 +11,7 @@ import (
 
 	"github.com/lobov/familyquest/backend/internal/application"
 	"github.com/lobov/familyquest/backend/internal/auth"
+	"github.com/lobov/familyquest/backend/internal/buildinfo"
 	"github.com/lobov/familyquest/backend/internal/config"
 	"github.com/lobov/familyquest/backend/internal/httpapi"
 	"github.com/lobov/familyquest/backend/internal/store"
@@ -100,6 +101,8 @@ func main() {
 			tenantHandler.ServeHTTP(w, r)
 		})
 	}
+	handler = httpapi.WithVersion(handler, cfg.CORSOrigin, httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)})
+	log.Printf("starting FamilyQuest version=%s commit=%s builtAt=%s", buildinfo.Version, buildinfo.Commit, buildinfo.BuiltAt)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
