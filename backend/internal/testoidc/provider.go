@@ -25,6 +25,7 @@ type Provider struct {
 	mu       sync.Mutex
 	codes    map[string]grant
 	Override map[string]any
+	signer   jose.Signer
 }
 
 func New(t *testing.T, override map[string]any) *Provider {
@@ -37,12 +38,12 @@ func New(t *testing.T, override map[string]any) *Provider {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &Provider{codes: map[string]grant{}, Override: override}
+	p := &Provider{codes: map[string]grant{}, Override: override, signer: signer}
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": p.Server.URL, "authorization_endpoint": p.Server.URL + "/authorize", "token_endpoint": p.Server.URL + "/token", "jwks_uri": p.Server.URL + "/keys", "id_token_signing_alg_values_supported": []string{"ES256"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"end_session_endpoint": p.Server.URL + "/logout", "issuer": p.Server.URL, "authorization_endpoint": p.Server.URL + "/authorize", "token_endpoint": p.Server.URL + "/token", "jwks_uri": p.Server.URL + "/keys", "id_token_signing_alg_values_supported": []string{"ES256"}})
 		case "/keys":
 			_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "test-key", Algorithm: "ES256", Use: "sig"}}})
 		case "/token":
@@ -57,7 +58,7 @@ func New(t *testing.T, override map[string]any) *Provider {
 				http.Error(w, "invalid grant", 400)
 				return
 			}
-			claims := map[string]any{"iss": p.Server.URL, "sub": "shared-person", "aud": g.Client, "exp": time.Now().Add(time.Minute).Unix(), "iat": time.Now().Unix(), "nonce": g.Nonce}
+			claims := map[string]any{"iss": p.Server.URL, "sub": "shared-person", "sid": "shared-session", "aud": g.Client, "exp": time.Now().Add(time.Minute).Unix(), "iat": time.Now().Unix(), "nonce": g.Nonce}
 			for k, v := range p.Override {
 				claims[k] = v
 			}
@@ -99,4 +100,21 @@ func (p *Provider) Code(t *testing.T, authorization string) (code, state string)
 	p.codes[code] = grant{Client: q.Get("client_id"), Nonce: q.Get("nonce"), Challenge: q.Get("code_challenge")}
 	p.mu.Unlock()
 	return code, q.Get("state")
+}
+
+func (p *Provider) Sign(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	b, e := json.Marshal(claims)
+	if e != nil {
+		t.Fatal(e)
+	}
+	v, e := p.signer.Sign(b)
+	if e != nil {
+		t.Fatal(e)
+	}
+	raw, e := v.CompactSerialize()
+	if e != nil {
+		t.Fatal(e)
+	}
+	return raw
 }

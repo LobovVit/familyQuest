@@ -18,21 +18,22 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type Subject struct{ Issuer, ID string }
+type Subject struct{ Issuer, ID, SessionID string }
 type Config struct{ Issuer, ClientID, ClientSecret, RedirectURL string }
 type flow struct {
 	state, nonce, verifier string
 	expires                time.Time
 }
 type Login struct {
-	config   Config
-	oauth    oauth2.Config
-	verifier *oidc.IDTokenVerifier
-	client   *http.Client
-	mu       sync.Mutex
-	flows    map[string]flow
-	secure   bool
-	now      func() time.Time
+	endSession string
+	config     Config
+	oauth      oauth2.Config
+	verifier   *oidc.IDTokenVerifier
+	client     *http.Client
+	mu         sync.Mutex
+	flows      map[string]flow
+	secure     bool
+	now        func() time.Time
 }
 
 func localHTTP(u *url.URL) bool {
@@ -64,7 +65,8 @@ func New(ctx context.Context, c Config) (*Login, error) {
 		return nil, err
 	}
 	var metadata struct {
-		Keys string `json:"jwks_uri"`
+		Keys       string `json:"jwks_uri"`
+		EndSession string `json:"end_session_endpoint"`
 	}
 	if provider.Claims(&metadata) != nil {
 		return nil, errors.New("invalid OIDC discovery")
@@ -72,13 +74,18 @@ func New(ctx context.Context, c Config) (*Login, error) {
 	if _, err = validURL(metadata.Keys); err != nil {
 		return nil, err
 	}
+	if metadata.EndSession != "" {
+		if _, err = validURL(metadata.EndSession); err != nil {
+			return nil, err
+		}
+	}
 	endpoint := provider.Endpoint()
 	for _, raw := range []string{endpoint.AuthURL, endpoint.TokenURL} {
 		if _, err = validURL(raw); err != nil {
 			return nil, err
 		}
 	}
-	return &Login{config: c, oauth: oauth2.Config{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RedirectURL: c.RedirectURL, Endpoint: endpoint, Scopes: []string{oidc.ScopeOpenID}}, verifier: provider.Verifier(&oidc.Config{ClientID: c.ClientID, SupportedSigningAlgs: []string{oidc.RS256, oidc.ES256}}), client: client, flows: map[string]flow{}, secure: redirect.Scheme == "https", now: time.Now}, nil
+	return &Login{endSession: metadata.EndSession, config: c, oauth: oauth2.Config{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RedirectURL: c.RedirectURL, Endpoint: endpoint, Scopes: []string{oidc.ScopeOpenID}}, verifier: provider.Verifier(&oidc.Config{ClientID: c.ClientID, SupportedSigningAlgs: []string{oidc.RS256, oidc.ES256}}), client: client, flows: map[string]flow{}, secure: redirect.Scheme == "https", now: time.Now}, nil
 }
 func random() string {
 	var b [32]byte
@@ -167,11 +174,12 @@ func (l *Login) Complete(w http.ResponseWriter, r *http.Request) (Subject, error
 	}
 	var claims struct {
 		AuthorizedParty string `json:"azp"`
+		SessionID       string `json:"sid"`
 	}
 	if id.Claims(&claims) != nil || (claims.AuthorizedParty != "" && claims.AuthorizedParty != l.config.ClientID) || (len(id.Audience) > 1 && claims.AuthorizedParty != l.config.ClientID) {
 		return Subject{}, fail
 	}
-	return Subject{Issuer: l.config.Issuer, ID: id.Subject}, nil
+	return Subject{Issuer: l.config.Issuer, ID: id.Subject, SessionID: claims.SessionID}, nil
 }
 
 // ReturnURL never accepts a caller-controlled redirect destination.

@@ -222,7 +222,7 @@ func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
 	}
 	gateway.SSO = access.NewSSO(oidcLogin, ap)
 	ssoLogin := func() *httptest.ResponseRecorder {
-		start := call("GET", "/api/account/authorize", "", "", nil)
+		start := call("GET", "/api/account/authorize?remember=1", "", "", nil)
 		code, state := provider.Code(t, start.Header().Get("Location"))
 		callback := call("GET", "/api/account/callback?code="+code+"&state="+state, "", "", start.Result().Cookies())
 		if callback.Code != 303 || callback.Header().Get("Location") != "https://family.example/?sso=complete" {
@@ -252,12 +252,44 @@ func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
 	if ssoSession.Code != 200 {
 		t.Fatal(ssoSession.Code, ssoSession.Body.String())
 	}
-	var ssoResult application.LoginResult
-	if json.Unmarshal(ssoSession.Body.Bytes(), &ssoResult) != nil || ssoResult.Participant.FamilyID != ids[0] {
-		t.Fatal("SSO family mismatch")
+	var profiles []domain.Participant
+	if json.Unmarshal(ssoSession.Body.Bytes(), &profiles) != nil || len(profiles) == 0 {
+		t.Fatal("profile list missing", ssoSession.Body.String())
 	}
-	if w := call("GET", "/api/participants", ssoResult.Token, "", nil); w.Code != 200 {
+	if strings.Contains(ssoSession.Body.String(), `"token"`) {
+		t.Fatal("owner token exposed")
+	}
+	for _, c := range ssoSession.Result().Cookies() {
+		if c.Name == "__Host-familyquest-sso" && c.MaxAge != 2592000 {
+			t.Fatal("remember lifetime", c.MaxAge)
+		}
+	}
+	restored := call("POST", "/api/account/restore", "", "{}", ssoSession.Result().Cookies())
+	if restored.Code != 200 {
+		t.Fatal("restore", restored.Code, restored.Body.String())
+	}
+	if w := call("GET", "/api/chores", "", "", ssoSession.Result().Cookies()); w.Code != 401 {
+		t.Fatal("account cookie grants profile access", w.Code)
+	}
+	profileBody := fmt.Sprintf(`{"participantId":%d,"pin":"739281"}`, profiles[0].ID)
+	denied := call("POST", "/api/account/profile", "", fmt.Sprintf(`{"participantId":%d,"pin":"000000"}`, profiles[0].ID), ssoSession.Result().Cookies())
+	if denied.Code == 200 {
+		t.Fatal("wrong PIN accepted")
+	}
+	selected := call("POST", "/api/account/profile", "", profileBody, ssoSession.Result().Cookies())
+	var ssoResult application.LoginResult
+	if selected.Code != 200 || json.Unmarshal(selected.Body.Bytes(), &ssoResult) != nil || ssoResult.Participant.FamilyID != ids[0] {
+		t.Fatal("profile login", selected.Code, selected.Body.String())
+	}
+	if w := call("GET", "/api/participants", ssoResult.Token, "", ssoSession.Result().Cookies()); w.Code != 200 {
 		t.Fatal("SSO session rejected", w.Code)
+	}
+	if w := call("GET", "/api/participants", ssoResult.Token, "", nil); w.Code != 401 {
+		t.Fatal("SSO cookie bypass", w.Code)
+	}
+	gateway.SSO.Sessions.Revoke(identity.Subject{Issuer: provider.Server.URL, ID: "shared-person", SessionID: "shared-session"})
+	if w := call("GET", "/api/participants", ssoResult.Token, "", ssoSession.Result().Cookies()); w.Code != 401 {
+		t.Fatal("revoked SSO accepted", w.Code)
 	}
 	if w := call("POST", "/api/account/login", "", `{"email":"ignored","password":"ignored"}`, nil); w.Code != 404 {
 		t.Fatal("password login bypass in SSO mode", w.Code)

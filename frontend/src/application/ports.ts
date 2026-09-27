@@ -10,7 +10,9 @@ export type RewardDraft = { title: string; description: string; period: RewardPe
 export interface FamilyQuestGateway {
  version(): Promise<import('../domain/version').DeploymentInfo>
  config(): Promise<{saas: boolean; sso?: boolean}>
- ssoSession(): Promise<LoginResponse>
+ ssoSession(): Promise<Participant[]>
+ restoreAccount(): Promise<Participant[] | null>
+ selectAccountProfile(participantId:number,pin:string): Promise<LoginResponse>
  accountLogin(email: string, password: string): Promise<LoginResponse>
  subscription(): Promise<FamilySubscription>
  learningPolicy(): Promise<LearningPolicy>

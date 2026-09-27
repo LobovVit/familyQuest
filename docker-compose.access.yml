@@ -21,9 +21,11 @@ services:
         APP_COMMIT: ${APP_COMMIT:-unknown}
         APP_BUILT_AT: ${APP_BUILT_AT:-unknown}
     command: ["familyquest-access"]
+    volumes: ["sso_sessions:/app/sessions"]
     environment:
       DATABASE_URL: ${ACCESS_DATABASE_URL:?ACCESS_DATABASE_URL is required}
       CORE_ORIGIN: http://familyquest-core:8081
+      SSO_SESSION_FILE: /app/sessions/registry.json
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
@@ -61,3 +63,6 @@ networks:
     internal: true
   data:
     internal: true
+
+volumes:
+  sso_sessions: {}

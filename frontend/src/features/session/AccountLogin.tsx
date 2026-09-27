@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useRuntime } from '../../application/runtime'
 import { useSession } from '../../application/useSession'
 import '../family/family.css'
+import type { Participant } from '../../domain/models'
 
 export function AccountLogin({ sso = false }: { sso?: boolean }) {
  const { gateway } = useRuntime()
@@ -9,15 +10,17 @@ export function AccountLogin({ sso = false }: { sso?: boolean }) {
  const [busy, setBusy] = useState(false)
  const [error, setError] = useState('')
  const [visible, setVisible] = useState(false)
+ const [remember,setRemember]=useState(false),[profiles,setProfiles]=useState<Participant[]|null>(null),[selected,setSelected]=useState(''),[pin,setPin]=useState('')
  useEffect(() => {
-  if (!sso || new URLSearchParams(window.location.search).get('sso') !== 'complete') return
+  if (!sso) return
+  const complete=new URLSearchParams(window.location.search).get('sso') === 'complete'
   let active = true
   setBusy(true)
-  void gateway.ssoSession().then(result => {
+  void (complete ? gateway.ssoSession() : gateway.restoreAccount()).then(result => {
    if (!active) return
    const url = new URL(window.location.href); url.searchParams.delete('sso')
    window.history.replaceState(null, '', url.pathname + url.search + url.hash)
-   login(result)
+   setProfiles(result)
   }).catch(e => { if (active) setError(e instanceof Error ? e.message : 'Не удалось завершить единый вход') })
     .finally(() => { if (active) setBusy(false) })
   return () => { active = false }
@@ -26,7 +29,14 @@ export function AccountLogin({ sso = false }: { sso?: boolean }) {
   <h1>FamilyQuest 🌳</h1>
   <p>Один аккаунт для всех подключённых сервисов. Подписка на каждый сервис оформляется отдельно.</p>
   {error && <p role="alert">{error}</p>}
-  {busy ? <p role="status">Завершаем вход…</p> : <a className="button" href="/api/account/authorize">Войти с единым аккаунтом</a>}
+  {!profiles && !busy && <label className="remember-choice"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Запомнить это устройство на 30 дней</label>}
+  {profiles && <form className="stack-form" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{login(await gateway.selectAccountProfile(Number(selected),pin))}catch(e){setError(e instanceof Error?e.message:'Не удалось войти')}finally{setPin('');setBusy(false)}}}>
+   <label>Семейный профиль<select value={selected} onChange={e=>{setSelected(e.target.value);setPin('')}} required><option value="">Выберите профиль</option>{profiles.filter(p=>p.active).map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
+   <label>PIN профиля<input type="password" inputMode="numeric" autoComplete="off" value={pin} maxLength={6} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,6))}/></label>
+   <button disabled={busy||!selected||pin.length!==6}>Открыть профиль</button>
+   <button type="button" disabled={busy} onClick={()=>void gateway.logout()}>Выйти из всех сервисов</button>
+  </form>}
+  {busy ? <p role="status">Завершаем вход…</p> : !profiles && <a className="button" href={remember ? "/api/account/authorize?remember=1" : "/api/account/authorize"}>Войти с единым аккаунтом</a>}
   <p>После входа выберите семейный профиль. Для переключения профиля используется его PIN.</p>
  </section></main>
  return <main className="account-entry"><section className="panel">

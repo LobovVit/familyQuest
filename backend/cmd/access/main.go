@@ -41,6 +41,13 @@ func main() {
 			log.Fatal("configure OIDC: ", err)
 		}
 		gateway.SSO = access.NewSSO(login, catalog)
+		if path := os.Getenv("SSO_SESSION_FILE"); path != "" {
+			sessions, err := identity.NewPersistentSessions(path)
+			if err != nil {
+				log.Fatal("SSO session storage: ", err)
+			}
+			gateway.SSO.Sessions = sessions
+		}
 	}
 	info := httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)}
 	gateway.Version = &info

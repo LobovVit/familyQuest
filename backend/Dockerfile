@@ -24,6 +24,8 @@ WORKDIR /app
 
 RUN addgroup -S familyquest && adduser -S -G familyquest -h /app familyquest
 
+RUN mkdir /app/sessions && chown familyquest:familyquest /app/sessions
+
 COPY --from=build /bin/familyquest-api /usr/local/bin/familyquest-api
 COPY --from=build /bin/familyquest-operator /usr/local/bin/familyquest-operator
 COPY --from=build /bin/familyquest-access /usr/local/bin/familyquest-access
