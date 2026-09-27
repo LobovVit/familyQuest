@@ -14,6 +14,7 @@ import (
 type FamilyServices func(context.Context, int64) (*application.Service, error)
 type familyContextKey struct{}
 type SaaS struct {
+	private  bool
 	platform application.PlatformGateway
 	resolve  FamilyServices
 	tokens   application.Tokens
@@ -60,7 +61,25 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if s.private && r.URL.Path == AccountSessionPath {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		var in AccountSessionInput
+		if decodeJSON(r, &in) != nil || in.FamilyID <= 0 || in.ParticipantID <= 0 {
+			respond(w, nil, domain.ErrInvalidInput)
+			return
+		}
+		s.completeAccountLogin(w, r, in.FamilyID, in.ParticipantID)
+		return
+	}
 	if r.URL.Path == "/api/account/login" {
+		if s.private {
+			http.NotFound(w, r)
+			return
+		}
 		s.accountLogin(w, r)
 		return
 	}
@@ -117,6 +136,10 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, e)
 		return
 	}
+	if s.private && r.URL.Path == IntrospectionPath && r.Method == http.MethodGet {
+		respond(w, AccessState{Principal: p, Subscription: subscription}, nil)
+		return
+	}
 	if r.URL.Path == "/api/subscription" && r.Method == "GET" {
 		if !p.IsParent() {
 			respond(w, nil, domain.ErrForbidden)
@@ -130,7 +153,7 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 429, "Слишком много попыток. Повторите через минуту.")
 		return
 	}
-	if !subscription.Access && r.Method != "GET" && r.Method != "HEAD" && !strings.HasPrefix(r.URL.Path, "/api/session") && !strings.HasSuffix(r.URL.Path, "/answers") && !strings.HasSuffix(r.URL.Path, "/finish") {
+	if !subscription.Access && !AllowsExpiredRequest(r.Method, r.URL.Path) {
 		writeError(w, 403, "Доступ к новым действиям приостановлен. Обратитесь к родителю.")
 		return
 	}
@@ -164,6 +187,9 @@ func (s *SaaS) accountLogin(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, e)
 		return
 	}
+	s.completeAccountLogin(w, r, family, id)
+}
+func (s *SaaS) completeAccountLogin(w http.ResponseWriter, r *http.Request, family, id int64) {
 	app, e := s.resolve(r.Context(), family)
 	if e != nil {
 		respond(w, nil, e)

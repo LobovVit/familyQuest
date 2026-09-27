@@ -8,6 +8,7 @@ import type { Assignment, BehaviorRating, Chore, ChoreDraft, LeaderboardEntry, L
 export type ParticipantDraft = { name: string; role: Participant['role']; pin: string }
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
+ version(): Promise<import('../domain/version').DeploymentInfo>
  config(): Promise<{saas: boolean}>
  accountLogin(email: string, password: string): Promise<LoginResponse>
  subscription(): Promise<FamilySubscription>

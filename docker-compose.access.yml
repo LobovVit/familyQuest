@@ -1,0 +1,59 @@
+# Overlay for docker-compose.prod.yml; Docker Compose 2.24.4+ is required.
+# Дополнение к docker-compose.prod.yml; требуется Docker Compose 2.24.4+.
+services:
+  postgres:
+    networks: !override [data]
+  api:
+    environment:
+      FAMILYQUEST_SAAS: "1"
+      FAMILYQUEST_SKIP_MIGRATIONS: "1"
+      FAMILYQUEST_REQUIRE_ACCESS: "1"
+      ACCESS_SHARED_SECRET: ${ACCESS_SHARED_SECRET:?ACCESS_SHARED_SECRET is required}
+    networks: !override
+      core:
+        aliases: [familyquest-core]
+      data: {}
+  access:
+    build:
+      context: ./backend
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BUILT_AT: ${APP_BUILT_AT:-unknown}
+    command: ["familyquest-access"]
+    environment:
+      DATABASE_URL: ${ACCESS_DATABASE_URL:?ACCESS_DATABASE_URL is required}
+      CORE_ORIGIN: http://familyquest-core:8081
+      ACCESS_SHARED_SECRET: ${ACCESS_SHARED_SECRET:?ACCESS_SHARED_SECRET is required}
+      HTTP_ADDR: :8081
+      CORS_ORIGIN: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      edge:
+        aliases: [api]
+      core: {}
+      data: {}
+  web:
+    depends_on:
+      access:
+        condition: service_healthy
+    networks: !override [edge, homelab]
+networks:
+  edge: {}
+  core:
+    internal: true
+  data:
+    internal: true

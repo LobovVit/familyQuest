@@ -17,3 +17,13 @@ it('uses the adult account and clears the password after login',async()=>{
  expect(accountLogin).toHaveBeenCalledWith('parent@example.test','a-long-password')
  expect((screen.getByLabelText('Пароль') as HTMLInputElement).value).toBe('')
 })
+it('submits actual input values when autofill does not emit change events',async()=>{
+ const response={participant:{id:1,familyId:2,name:'Родитель',role:'parent',active:true},token:'test'}
+ const accountLogin=vi.fn().mockResolvedValue(response),saveSession=vi.fn()
+ const runtime={gateway:{accountLogin},session:{subscribe:()=>()=>{},getParticipant:()=>null,saveSession}} as unknown as Runtime
+ render(<RuntimeContext.Provider value={runtime}><AccountLogin/></RuntimeContext.Provider>)
+ ;(screen.getByLabelText('Почта взрослого') as HTMLInputElement).value='parent@example.test'
+ ;(screen.getByLabelText('Пароль') as HTMLInputElement).value='filled-by-browser'
+ fireEvent.click(screen.getByRole('button',{name:'Войти'}))
+ await waitFor(()=>expect(accountLogin).toHaveBeenCalledWith('parent@example.test','filled-by-browser'))
+})

@@ -440,6 +440,9 @@ func (p *Platform) ResetAccount(ctx context.Context, email, password, operator s
 // ConfigureRuntime grants routing privileges without migration or billing writes.
 // ConfigureRuntime выдаёт права маршрутизации без миграций и изменения оплат.
 func (p *Platform) ConfigureRuntime(ctx context.Context, role string) error {
+	return p.configureRuntime(ctx, role, true)
+}
+func (p *Platform) configureRuntime(ctx context.Context, role string, withAccounts bool) error {
 	if role == "" {
 		return domain.ErrInvalidInput
 	}
@@ -456,7 +459,13 @@ func (p *Platform) ConfigureRuntime(ctx context.Context, role string) error {
 	if !safe {
 		return fmt.Errorf("runtime role must not have administrative attributes")
 	}
-	if _, e = tx.Exec(ctx, "alter role "+name+" noinherit;grant usage on schema fq_platform to "+name+"; grant select on fq_platform.families,fq_platform.accounts,fq_platform.payments to "+name); e != nil {
+	grants := "alter role " + name + " noinherit; grant usage on schema fq_platform to " + name + "; grant select on fq_platform.families to " + name
+	if withAccounts {
+		grants += "; grant select on fq_platform.accounts,fq_platform.payments to " + name
+	} else {
+		grants += "; revoke all on fq_platform.accounts,fq_platform.payments from " + name
+	}
+	if _, e = tx.Exec(ctx, grants); e != nil {
 		return e
 	}
 	rows, e := tx.Query(ctx, `select id from fq_platform.families`)
