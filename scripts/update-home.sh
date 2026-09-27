@@ -32,15 +32,22 @@ fi
 source scripts/build-metadata.sh
 echo "==> Build $APP_VERSION ($APP_COMMIT)"
 
+compose=(docker compose -p "$PROJECT" -f "$COMPOSE_FILE")
+services=(api web)
+if [[ -f .access-proxy-enabled ]]; then
+  [[ -f docker-compose.access.yml ]] || { echo 'This checkout cannot deploy the configured access proxy' >&2; exit 1; }
+  compose+=(-f docker-compose.access.yml)
+  services+=(access)
+fi
 echo "==> Building and restarting Docker Compose project: $PROJECT"
-docker compose -p "$PROJECT" -f "$COMPOSE_FILE" config --quiet
-docker compose -p "$PROJECT" -f "$COMPOSE_FILE" up --build -d --remove-orphans
+"${compose[@]}" config --quiet
+"${compose[@]}" up --build -d --remove-orphans
 
 echo "==> Containers"
-docker compose -p "$PROJECT" -f "$COMPOSE_FILE" ps
+"${compose[@]}" ps
 
 echo "==> Waiting for services to become healthy"
-docker compose -p "$PROJECT" -f "$COMPOSE_FILE" up -d --wait --wait-timeout "${WAIT_TIMEOUT:-120}"
+"${compose[@]}" up -d --wait --wait-timeout "${WAIT_TIMEOUT:-120}"
 
 echo "==> Checking public HTTPS endpoint: $HEALTH_URL"
 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$HEALTH_URL" >/dev/null
@@ -48,8 +55,8 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$HEALTH
 echo "==> Verifying running API and web build identity"
 VERSION_URL="${VERSION_URL:-https://${HEALTH_HOST}/api/version}"
 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$VERSION_URL" | python3 -c 'import json,os,sys; v=json.load(sys.stdin); assert v["commit"]==os.environ["APP_COMMIT"] and v["version"]==os.environ["APP_VERSION"], "Unexpected API build"; print(v["version"],v["commit"])'
-for service in api web; do
-  container="$(docker compose -p "$PROJECT" -f "$COMPOSE_FILE" ps -q "$service")"
+for service in "${services[@]}"; do
+  container="$("${compose[@]}" ps -q "$service")"
   [[ "$(docker inspect "$container" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" == "$APP_COMMIT" ]] || { echo "Unexpected $service image" >&2; exit 1; }
 done
 echo "==> Done"

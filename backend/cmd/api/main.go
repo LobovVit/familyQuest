@@ -68,6 +68,11 @@ func main() {
 	var handler http.Handler = httpapi.NewServer(app, cfg.CORSOrigin)
 	if cfg.SaaS {
 		platform := store.NewPlatform(db)
+		if cfg.RequireAccess {
+			if err := platform.CheckCoreRuntime(ctx); err != nil {
+				log.Fatal(err)
+			}
+		}
 		if !cfg.Migrate {
 			if err := platform.CheckRuntime(ctx); err != nil {
 				log.Fatal(err)
@@ -81,7 +86,13 @@ func main() {
 				log.Fatal(err)
 			}
 		}
-		tenantHandler := httpapi.NewSaaS(platform, func(ctx context.Context, id int64) (*application.Service, error) {
+		factory := httpapi.NewSaaS
+		var gateway application.PlatformGateway = platform
+		if cfg.RequireAccess {
+			factory = httpapi.NewPrivateSaaS
+			gateway = store.CorePlatform{Platform: platform}
+		}
+		tenantHandler := factory(gateway, func(ctx context.Context, id int64) (*application.Service, error) {
 			repo, err := platform.Family(ctx, id)
 			if err != nil {
 				return nil, err
@@ -102,6 +113,9 @@ func main() {
 		})
 	}
 	handler = httpapi.WithVersion(handler, cfg.CORSOrigin, httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)})
+	if cfg.RequireAccess {
+		handler = httpapi.RequireAccess(handler, cfg.AccessSecret)
+	}
 	log.Printf("starting FamilyQuest version=%s commit=%s builtAt=%s", buildinfo.Version, buildinfo.Commit, buildinfo.BuiltAt)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
