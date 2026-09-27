@@ -49,9 +49,10 @@ type Tokens interface {
 }
 
 type Service struct {
-	repo   Repository
-	tokens Tokens
-	now    func() time.Time
+	familyID int64
+	repo     Repository
+	tokens   Tokens
+	now      func() time.Time
 }
 
 func New(repo Repository, tokens Tokens) *Service {
@@ -66,6 +67,7 @@ func (s *Service) Authenticate(c context.Context, id int64, pin string) (domain.
 	if err != nil {
 		return p, "", err
 	}
+	p.FamilyID = s.familyID
 	t, err := s.tokens.Issue(p)
 	return p, t, err
 }
@@ -90,6 +92,12 @@ func (s *Service) ListParticipants(c context.Context) ([]domain.Participant, err
 	return s.repo.ListParticipants(c)
 }
 func (s *Service) CreateParticipant(c context.Context, actor domain.Principal, p domain.Participant, pin string) (domain.Participant, error) {
+	if err := s.writable(c); err != nil {
+		return domain.Participant{}, err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.Participant{}, domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return p, domain.ErrForbidden
 	}
@@ -103,6 +111,9 @@ func (s *Service) CreateParticipant(c context.Context, actor domain.Principal, p
 	if e := domain.ValidateRole(p.Role); e != nil {
 		return p, e
 	}
+	if s.familyID > 0 && p.Role == domain.RoleSchool {
+		return p, domain.ErrInvalidRole
+	}
 	p.Name = strings.TrimSpace(p.Name)
 	if p.Name == "" {
 		return p, domain.ErrInvalidInput
@@ -110,6 +121,12 @@ func (s *Service) CreateParticipant(c context.Context, actor domain.Principal, p
 	return s.repo.CreateParticipant(c, p, pin)
 }
 func (s *Service) DeleteParticipant(c context.Context, actor domain.Principal, id int64) error {
+	if err := s.writable(c); err != nil {
+		return err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return domain.ErrForbidden
 	}
@@ -117,6 +134,9 @@ func (s *Service) DeleteParticipant(c context.Context, actor domain.Principal, i
 	return s.repo.DeleteParticipant(c, id)
 }
 func (s *Service) UpdateParticipantPIN(c context.Context, actor domain.Principal, id int64, pin, proof string) (domain.Participant, error) {
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.Participant{}, domain.ErrForbidden
+	}
 	if err := s.CheckConfirmation(c, actor, proof); err != nil {
 		return domain.Participant{}, err
 	}
@@ -131,6 +151,12 @@ func (s *Service) UpdateParticipantPIN(c context.Context, actor domain.Principal
 }
 func (s *Service) ListChores(c context.Context) ([]domain.Chore, error) { return s.repo.ListChores(c) }
 func (s *Service) CreateChore(c context.Context, actor domain.Principal, v domain.Chore) (domain.Chore, error) {
+	if err := s.writable(c); err != nil {
+		return domain.Chore{}, err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.Chore{}, domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return v, domain.ErrForbidden
 	}
@@ -142,6 +168,12 @@ func (s *Service) CreateChore(c context.Context, actor domain.Principal, v domai
 	return s.repo.CreateChore(c, v)
 }
 func (s *Service) UpdateChore(c context.Context, actor domain.Principal, v domain.Chore) (domain.Chore, error) {
+	if err := s.writable(c); err != nil {
+		return domain.Chore{}, err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.Chore{}, domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return v, domain.ErrForbidden
 	}
@@ -156,6 +188,12 @@ func (s *Service) ListAssignments(c context.Context) ([]domain.Assignment, error
 	return s.repo.ListAssignments(c)
 }
 func (s *Service) CreateAssignment(c context.Context, actor domain.Principal, a, b int64) (domain.Assignment, error) {
+	if err := s.writable(c); err != nil {
+		return domain.Assignment{}, err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.Assignment{}, domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return domain.Assignment{}, domain.ErrForbidden
 	}
@@ -172,6 +210,12 @@ func (s *Service) ListWeekPlan(c context.Context, d time.Time) ([]domain.WeekPla
 	return s.repo.ListWeekPlan(c, d)
 }
 func (s *Service) CompleteTask(c context.Context, p domain.Principal, id int64) (domain.Task, error) {
+	if err := s.writable(c); err != nil {
+		return domain.Task{}, err
+	}
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.Task{}, domain.ErrForbidden
+	}
 	owner, e := s.repo.TaskOwner(c, id)
 	if e != nil {
 		return domain.Task{}, e
@@ -182,6 +226,12 @@ func (s *Service) CompleteTask(c context.Context, p domain.Principal, id int64) 
 	return s.repo.CompleteTask(c, id, p.ParticipantID)
 }
 func (s *Service) ConfirmTask(c context.Context, p domain.Principal, id int64, r int, comment string) (domain.Task, error) {
+	if err := s.writable(c); err != nil {
+		return domain.Task{}, err
+	}
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.Task{}, domain.ErrForbidden
+	}
 	if !p.IsParent() {
 		return domain.Task{}, domain.ErrForbidden
 	}
@@ -204,6 +254,12 @@ func (s *Service) ListBehaviorRatings(c context.Context, d time.Time) ([]domain.
 	return s.repo.ListBehaviorRatings(c, d)
 }
 func (s *Service) RateBehavior(c context.Context, p domain.Principal, d time.Time, target int64, r int, comment string) (domain.BehaviorRating, error) {
+	if err := s.writable(c); err != nil {
+		return domain.BehaviorRating{}, err
+	}
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.BehaviorRating{}, domain.ErrForbidden
+	}
 	if p.ParticipantID <= 0 || (!p.IsParent() && p.Role != domain.RoleChild) {
 		return domain.BehaviorRating{}, domain.ErrForbidden
 	}
@@ -225,6 +281,12 @@ func (s *Service) ListRewards(c context.Context) ([]domain.Reward, error) {
 	return s.repo.ListRewards(c)
 }
 func (s *Service) CreateReward(c context.Context, actor domain.Principal, v domain.Reward) (domain.Reward, error) {
+	if err := s.writable(c); err != nil {
+		return domain.Reward{}, err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.Reward{}, domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return v, domain.ErrForbidden
 	}
@@ -236,18 +298,33 @@ func (s *Service) CreateReward(c context.Context, actor domain.Principal, v doma
 	return s.repo.CreateReward(c, v)
 }
 func (s *Service) DeleteReward(c context.Context, actor domain.Principal, id int64) error {
+	if err := s.writable(c); err != nil {
+		return err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return domain.ErrForbidden
 	}
 	return s.repo.DeleteReward(c, id)
 }
 func (s *Service) ExportBackup(c context.Context, actor domain.Principal) (BackupData, error) {
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return BackupData{}, domain.ErrForbidden
+	}
 	if !actor.IsParent() {
 		return BackupData{}, domain.ErrForbidden
 	}
 	return s.repo.ExportBackup(c)
 }
 func (s *Service) ImportBackup(c context.Context, actor domain.Principal, b BackupData, proof string) error {
+	if err := s.writable(c); err != nil {
+		return err
+	}
+	if s.familyID > 0 && actor.FamilyID != s.familyID {
+		return domain.ErrForbidden
+	}
 	if err := s.CheckConfirmation(c, actor, proof); err != nil {
 		return err
 	}
@@ -258,4 +335,27 @@ func (s *Service) ImportBackup(c context.Context, actor domain.Principal, b Back
 		return err
 	}
 	return s.repo.ImportBackup(c, b)
+}
+
+// NewForFamily constructs a service with a family-bound repository and tokens.
+// NewForFamily создаёт сервис с репозиторием и токенами выбранной семьи.
+func NewForFamily(repo Repository, tokens Tokens, id int64) *Service {
+	s := New(repo, tokens)
+	s.familyID = id
+	return s
+}
+
+// AccountSession is called only after the platform validates adult credentials.
+// AccountSession вызывается только после проверки аккаунта взрослого платформой.
+func (s *Service) AccountSession(ctx context.Context, id int64) (LoginResult, error) {
+	p, e := s.repo.GetParticipant(ctx, id)
+	if e != nil {
+		return LoginResult{}, e
+	}
+	if !p.Active || p.Role != domain.RoleParent {
+		return LoginResult{}, domain.ErrUnauthorized
+	}
+	p.FamilyID = s.familyID
+	t, e := s.tokens.Issue(p)
+	return LoginResult{Participant: p, Token: t}, e
 }

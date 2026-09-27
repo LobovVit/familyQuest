@@ -19,17 +19,17 @@ export function useFamilyQuestData(selectedDate: string, participant: Participan
  const generation = useRef(0)
  const participantGeneration = useRef(0)
  const clearProtected = useCallback(() => {
-  setChores([]); setAssignments([]); setRewards([]); setTasks([]); setBehaviorRatings([])
+  setChores([]); setAssignments([]); setRewards([]); setTasks([]); setBehaviorRatings([]); setDayLeaderboard([]); setWeekLeaderboard([]); setMonthLeaderboard([])
  }, [])
  const loadParticipants = useCallback(async () => {
   const request = ++participantGeneration.current
   try {
    const values = await gateway.participants()
-   if (request === participantGeneration.current) setParticipants(values)
+   if (request === participantGeneration.current && session.getParticipant() === participant) setParticipants(values)
   } catch (error) {
    if (request === participantGeneration.current) setLoadError(error instanceof Error ? error.message : 'Не удалось загрузить участников')
   }
- }, [gateway])
+ }, [gateway, session, participant])
  const refresh = useCallback(async () => {
   // Old mutation callbacks must not invalidate or reload the new view.
   if (session.getParticipant() !== participant || activeDate.current !== selectedDate) return
@@ -55,6 +55,7 @@ export function useFamilyQuestData(selectedDate: string, participant: Participan
  const invalidateParticipants = useCallback(() => { ++participantGeneration.current }, [])
  const invalidateData = useCallback(() => { ++generation.current }, [])
  useEffect(() => {
+  setParticipants([])
   void loadParticipants()
   return invalidateParticipants
  }, [loadParticipants, invalidateParticipants])

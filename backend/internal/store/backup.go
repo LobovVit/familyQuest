@@ -29,7 +29,8 @@ type BackupRewardParticipant = application.BackupRewardParticipant
 
 func (s *Store) ExportBackup(ctx context.Context) (BackupData, error) {
 	backup := emptyBackupData()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	backup.FamilyID = s.familyID
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return BackupData{}, err
 	}
@@ -62,12 +63,38 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	if err := backup.Validate(); err != nil {
 		return err
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 
+	if s.familyID > 0 {
+		if backup.FamilyID != s.familyID || backup.Version < 6 {
+			return domain.ErrInvalidInput
+		}
+		var limit int
+		var owner *int64
+		if err = tx.QueryRow(ctx, `select child_limit,owner_participant_id from service_policy where id for update`).Scan(&limit, &owner); err != nil {
+			return err
+		}
+		children := 0
+		found := false
+		for _, p := range backup.Participants {
+			if p.PINCode != "" {
+				return domain.ErrInvalidInput
+			}
+			if p.Active && p.Role == domain.RoleChild {
+				children++
+			}
+			if owner != nil && p.ID == *owner && p.Active && p.Role == domain.RoleParent {
+				found = true
+			}
+		}
+		if children > limit || !found {
+			return domain.ErrConflict
+		}
+	}
 	// Lock before reading credentials so a concurrent PIN update cannot be lost.
 	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards, trusted_devices in access exclusive mode`); err != nil {
 		return err
@@ -101,7 +128,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	rows.Close()
 
-	if _, err := tx.Exec(ctx, `truncate trusted_devices, math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants restart identity cascade`); err != nil {
+	if _, err := tx.Exec(ctx, `truncate trusted_devices, math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants cascade`); err != nil {
 		return err
 	}
 	for _, item := range backup.Participants {
@@ -124,6 +151,11 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 			insert into participants (id, name, role, pin_code, pin_hash, active, created_at, session_version)
 			overriding system value values ($1, $2, $3, null, $4, $5, $6, $7)
 			`, item.ID, item.Name, item.Role, hash, item.Active, item.CreatedAt, current.version+1); err != nil {
+			return err
+		}
+	}
+	for _, item := range backup.Participants {
+		if _, err := tx.Exec(ctx, `update participants set birth_date=nullif($2,'')::date,math_level=$3,reading_level=$4 where id=$1`, item.ID, item.LearningProfile.BirthDate, item.LearningProfile.MathLevel, item.LearningProfile.ReadingLevel); err != nil {
 			return err
 		}
 	}
@@ -237,7 +269,7 @@ func ResolveSeedPath(path string) string { return path }
 
 func (s *Store) HasAnyData(ctx context.Context) (bool, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		select
 			(select count(*) from participants) +
 			(select count(*) from chores) +
@@ -288,9 +320,9 @@ func scanBackupRows(ctx context.Context, query func(context.Context, string, ...
 		return err
 	}
 
-	if err := scanRows(ctx, query, `select id, name, role, active, created_at from participants order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, name, role, active, created_at,coalesce(birth_date::text,''),math_level,reading_level from participants order by id`, func(rows pgx.Rows) error {
 		var item BackupParticipant
-		if err := rows.Scan(&item.ID, &item.Name, &item.Role, &item.Active, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Role, &item.Active, &item.CreatedAt, &item.LearningProfile.BirthDate, &item.LearningProfile.MathLevel, &item.LearningProfile.ReadingLevel); err != nil {
 			return err
 		}
 		backup.Participants = append(backup.Participants, item)

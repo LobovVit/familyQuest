@@ -6,9 +6,10 @@ import (
 	"time"
 )
 
-const BackupVersion = 4
+const BackupVersion = 6
 
 type BackupData struct {
+	FamilyID           int64                     `json:"familyId,omitempty"`
 	MathSessions       []domain.MathSession      `json:"mathSessions"`
 	ActivityRewards    []domain.ActivityReward   `json:"activityRewards"`
 	FamilyEntries      []domain.FamilyEntry      `json:"familyEntries"`
@@ -24,12 +25,13 @@ type BackupData struct {
 	RewardParticipants []BackupRewardParticipant `json:"rewardParticipants"`
 }
 type BackupParticipant struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	PINCode   string    `json:"pinCode,omitempty"`
-	Active    bool      `json:"active"`
-	CreatedAt time.Time `json:"createdAt"`
+	LearningProfile domain.LearningProfile `json:"learningProfile,omitempty"`
+	ID              int64                  `json:"id"`
+	Name            string                 `json:"name"`
+	Role            string                 `json:"role"`
+	PINCode         string                 `json:"pinCode,omitempty"`
+	Active          bool                   `json:"active"`
+	CreatedAt       time.Time              `json:"createdAt"`
 }
 type BackupChore struct {
 	ID            int64     `json:"id"`
@@ -98,11 +100,14 @@ type BackupRewardParticipant struct {
 
 // Validate rejects unsupported and unusable backups before touching stored data.
 func (b BackupData) Validate() error {
-	if b.Version != 1 && b.Version != 2 && b.Version != 3 && b.Version != BackupVersion {
+	if b.Version != 1 && b.Version != 2 && b.Version != 3 && b.Version != 4 && b.Version != 5 && b.Version != BackupVersion {
 		return fmt.Errorf("%w: unsupported backup version %d", domain.ErrInvalidInput, b.Version)
 	}
 	hasParent := false
 	for _, p := range b.Participants {
+		if err := p.LearningProfile.Validate(time.Now()); err != nil {
+			return err
+		}
 		if p.ID <= 0 || p.Name == "" {
 			return domain.ErrInvalidInput
 		}

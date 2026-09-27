@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Store) CreateDevice(ctx context.Context, d domain.TrustedDevice, hash string, owner, approver domain.Participant, previousHash string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -53,17 +53,18 @@ func (s *Store) CreateDevice(ctx context.Context, d domain.TrustedDevice, hash s
 func (s *Store) AuthenticateDevice(ctx context.Context, hash string, now, expires time.Time) (domain.Participant, domain.TrustedDevice, error) {
 	var p domain.Participant
 	var d domain.TrustedDevice
-	err := s.pool.QueryRow(ctx, `update trusted_devices d set last_seen_at=$2,expires_at=$3 from participants p where d.token_hash=$1 and d.revoked_at is null and d.expires_at>$2 and p.id=d.participant_id and p.active and p.role in ('parent','child') and p.session_version=d.session_version returning p.id,p.name,p.role,p.active,p.created_at,p.session_version,d.id,d.name,d.created_at,d.last_seen_at,d.expires_at`, hash, now, expires).Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt, &p.SessionVersion, &d.ID, &d.Name, &d.CreatedAt, &d.LastSeenAt, &d.ExpiresAt)
+	err := s.db.QueryRow(ctx, `update trusted_devices d set last_seen_at=$2,expires_at=$3 from participants p where d.token_hash=$1 and d.revoked_at is null and d.expires_at>$2 and p.id=d.participant_id and p.active and p.role in ('parent','child') and p.session_version=d.session_version returning p.id,p.name,p.role,p.active,p.created_at,p.session_version,d.id,d.name,d.created_at,d.last_seen_at,d.expires_at`, hash, now, expires).Scan(&p.ID, &p.Name, &p.Role, &p.Active, &p.CreatedAt, &p.SessionVersion, &d.ID, &d.Name, &d.CreatedAt, &d.LastSeenAt, &d.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = domain.ErrUnauthorized
 	}
+	p.FamilyID = s.familyID
 	d.ParticipantID = p.ID
 	d.ParticipantName = p.Name
 	d.Current = true
 	return p, d, err
 }
 func (s *Store) ListDevices(ctx context.Context) ([]domain.TrustedDevice, error) {
-	rows, err := s.pool.Query(ctx, `select d.id,p.id,p.name,d.name,d.created_at,d.last_seen_at,d.expires_at from trusted_devices d join participants p on p.id=d.participant_id where d.revoked_at is null and d.expires_at>now() and p.active and p.session_version=d.session_version order by d.last_seen_at desc`)
+	rows, err := s.db.Query(ctx, `select d.id,p.id,p.name,d.name,d.created_at,d.last_seen_at,d.expires_at from trusted_devices d join participants p on p.id=d.participant_id where d.revoked_at is null and d.expires_at>now() and p.active and p.session_version=d.session_version order by d.last_seen_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -79,20 +80,20 @@ func (s *Store) ListDevices(ctx context.Context) ([]domain.TrustedDevice, error)
 	return out, rows.Err()
 }
 func (s *Store) RevokeDevice(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `update trusted_devices set revoked_at=coalesce(revoked_at,now()) where id=$1`, id)
+	tag, err := s.db.Exec(ctx, `update trusted_devices set revoked_at=coalesce(revoked_at,now()) where id=$1`, id)
 	if err == nil && tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
 	return err
 }
 func (s *Store) RevokeDeviceToken(ctx context.Context, hash string) error {
-	_, err := s.pool.Exec(ctx, `update trusted_devices set revoked_at=coalesce(revoked_at,now()) where token_hash=$1`, hash)
+	_, err := s.db.Exec(ctx, `update trusted_devices set revoked_at=coalesce(revoked_at,now()) where token_hash=$1`, hash)
 	return err
 }
 
 func (s *Store) DeviceAuthorized(ctx context.Context, id string, owner, version int64) error {
 	var active bool
-	err := s.pool.QueryRow(ctx, `select exists(select 1 from trusted_devices where id=$1 and participant_id=$2 and session_version=$3 and revoked_at is null and expires_at>now())`, id, owner, version).Scan(&active)
+	err := s.db.QueryRow(ctx, `select exists(select 1 from trusted_devices where id=$1 and participant_id=$2 and session_version=$3 and revoked_at is null and expires_at>now())`, id, owner, version).Scan(&active)
 	if err != nil {
 		return err
 	}

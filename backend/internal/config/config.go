@@ -7,6 +7,8 @@ import (
 )
 
 type Config struct {
+	SaaS          bool
+	Migrate       bool
 	DatabaseURL   string
 	HTTPAddr      string
 	CORSOrigin    string
@@ -25,6 +27,8 @@ func Load() Config {
 		}
 	}
 	return Config{
+		SaaS:          os.Getenv("FAMILYQUEST_SAAS") == "1",
+		Migrate:       os.Getenv("FAMILYQUEST_SKIP_MIGRATIONS") != "1",
 		DatabaseURL:   getEnv("DATABASE_URL", "postgres://familyquest:familyquest@localhost:5433/familyquest?sslmode=disable"),
 		HTTPAddr:      getEnv("HTTP_ADDR", ":8081"),
 		CORSOrigin:    getEnv("CORS_ORIGIN", "*"),

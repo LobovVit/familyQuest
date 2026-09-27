@@ -15,6 +15,9 @@ type FamilyRepository interface {
 }
 
 func (s *Service) FamilyEntries(ctx context.Context, p domain.Principal) ([]domain.FamilyEntry, error) {
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return nil, domain.ErrForbidden
+	}
 	if !domain.IsFamilyMember(p) {
 		return nil, domain.ErrForbidden
 	}
@@ -48,6 +51,12 @@ func (s *Service) validateFamilyParticipants(ctx context.Context, e domain.Famil
 	return nil
 }
 func (s *Service) CreateFamilyEntry(ctx context.Context, p domain.Principal, kind string, draft domain.FamilyDraft) (domain.FamilyEntry, error) {
+	if err := s.writable(ctx); err != nil {
+		return domain.FamilyEntry{}, err
+	}
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.FamilyEntry{}, domain.ErrForbidden
+	}
 	if !domain.IsFamilyMember(p) {
 		return domain.FamilyEntry{}, domain.ErrForbidden
 	}
@@ -66,6 +75,12 @@ func (s *Service) CreateFamilyEntry(ctx context.Context, p domain.Principal, kin
 	return s.repo.SaveFamilyEntry(ctx, e)
 }
 func (s *Service) EditFamilyEntry(ctx context.Context, p domain.Principal, id int64, version int, draft domain.FamilyDraft) (domain.FamilyEntry, error) {
+	if err := s.writable(ctx); err != nil {
+		return domain.FamilyEntry{}, err
+	}
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.FamilyEntry{}, domain.ErrForbidden
+	}
 	if !domain.IsFamilyMember(p) {
 		return domain.FamilyEntry{}, domain.ErrForbidden
 	}
@@ -104,6 +119,12 @@ func (s *Service) EditFamilyEntry(ctx context.Context, p domain.Principal, id in
 	return s.repo.SaveFamilyEntry(ctx, e)
 }
 func (s *Service) FamilyAction(ctx context.Context, p domain.Principal, id int64, cmd domain.FamilyCommand) (domain.FamilyEntry, error) {
+	if err := s.writable(ctx); err != nil {
+		return domain.FamilyEntry{}, err
+	}
+	if s.familyID > 0 && p.FamilyID != s.familyID {
+		return domain.FamilyEntry{}, domain.ErrForbidden
+	}
 	if !domain.IsFamilyMember(p) {
 		return domain.FamilyEntry{}, domain.ErrForbidden
 	}

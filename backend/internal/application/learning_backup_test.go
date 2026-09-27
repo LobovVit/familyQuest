@@ -51,3 +51,41 @@ func TestLearningBackupRewardPolicyCompatibility(t *testing.T) {
 		t.Fatal("accepted unknown policy")
 	}
 }
+
+func TestReadingBackupValidation(t *testing.T) {
+	c := domain.ReadingCompletion{ID: "0123456789abcdef0123456789abcdef", Level: "advanced"}
+	r := c.Reward(1, 0, time.Now())
+	valid := func() BackupData {
+		return BackupData{Version: BackupVersion, Participants: []BackupParticipant{{ID: 1, Role: domain.RoleChild}}, ActivityRewards: []domain.ActivityReward{r}}
+	}
+	b := valid()
+	if b.validateLearning() != nil {
+		t.Fatal("valid")
+	}
+	for _, mutate := range []func(*BackupData){
+		func(b *BackupData) { b.Version = 4 },
+		func(b *BackupData) { b.ActivityRewards[0].Stars = 13 },
+		func(b *BackupData) { b.ActivityRewards[0].SourceKey = "bad" },
+		func(b *BackupData) { b.ActivityRewards[0].Smiles = 1 },
+		func(b *BackupData) { b.Participants[0].Role = domain.RoleParent },
+		func(b *BackupData) { b.ActivityRewards = append(b.ActivityRewards, r) },
+		func(b *BackupData) {
+			for i := 0; i < 3; i++ {
+				copy := r
+				copy.SourceKey = fmt.Sprintf("%032x", i)
+				b.ActivityRewards = append(b.ActivityRewards, copy)
+			}
+		},
+	} {
+		b = valid()
+		mutate(&b)
+		if b.validateLearning() == nil {
+			t.Fatal("invalid reading backup", b)
+		}
+	}
+	b = valid()
+	b.ActivityRewards[0].Stars = 0
+	if b.validateLearning() != nil {
+		t.Fatal("zero completion")
+	}
+}

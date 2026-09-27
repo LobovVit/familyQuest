@@ -14,11 +14,13 @@ import (
 )
 
 type Tokens struct {
-	secret []byte
-	ttl    time.Duration
-	now    func() time.Time
+	familyID int64
+	secret   []byte
+	ttl      time.Duration
+	now      func() time.Time
 }
 type claims struct {
+	FamilyID       int64  `json:"familyId,omitempty"`
 	DeviceID       string `json:"device,omitempty"`
 	ConfirmedUntil int64  `json:"confirmedUntil,omitempty"`
 	Version        int64  `json:"ver"`
@@ -37,11 +39,11 @@ func New(secret string, ttl time.Duration) (*Tokens, error) {
 	return &Tokens{secret: []byte(secret), ttl: ttl, now: time.Now}, nil
 }
 func (t *Tokens) Issue(p domain.Participant) (string, error) {
-	return t.issue(claims{Version: p.SessionVersion, Subject: strconv.FormatInt(p.ID, 10), Role: p.Role, Expires: t.now().Add(t.ttl).Unix()})
+	return t.issue(claims{FamilyID: t.familyID, Version: p.SessionVersion, Subject: strconv.FormatInt(p.ID, 10), Role: p.Role, Expires: t.now().Add(t.ttl).Unix()})
 }
 func (t *Tokens) IssueConfirmation(p domain.Principal) (string, error) {
 	expires := t.now().Add(5 * time.Minute).Unix()
-	return t.issue(claims{Version: p.SessionVersion, Subject: strconv.FormatInt(p.ParticipantID, 10), Role: p.Role, Expires: expires, ConfirmedUntil: expires, DeviceID: p.DeviceID})
+	return t.issue(claims{FamilyID: t.familyID, Version: p.SessionVersion, Subject: strconv.FormatInt(p.ParticipantID, 10), Role: p.Role, Expires: expires, ConfirmedUntil: expires, DeviceID: p.DeviceID})
 }
 func (t *Tokens) issue(c claims) (string, error) {
 	h := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
@@ -71,12 +73,16 @@ func (t *Tokens) Parse(token string) (domain.Principal, error) {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
 	var c claims
-	if json.Unmarshal(b, &c) != nil || c.Expires <= t.now().Unix() {
+	if json.Unmarshal(b, &c) != nil || c.Expires <= t.now().Unix() || (t.familyID > 0 && c.FamilyID != t.familyID) {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
 	id, err := strconv.ParseInt(c.Subject, 10, 64)
 	if err != nil || id <= 0 || domain.ValidateRole(c.Role) != nil {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
-	return domain.Principal{ParticipantID: id, Role: c.Role, SessionVersion: c.Version, DeviceID: c.DeviceID, ConfirmedUntil: c.ConfirmedUntil}, nil
+	return domain.Principal{FamilyID: c.FamilyID, ParticipantID: id, Role: c.Role, SessionVersion: c.Version, DeviceID: c.DeviceID, ConfirmedUntil: c.ConfirmedUntil}, nil
 }
+
+// ForFamily binds both issuance and parsing to one family.
+// ForFamily связывает выпуск и проверку токенов с одной семьёй.
+func (t *Tokens) ForFamily(id int64) *Tokens { v := *t; v.familyID = id; return &v }

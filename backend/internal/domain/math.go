@@ -28,9 +28,11 @@ type MathAnswer struct {
 	Date    string         `json:"date"`
 }
 
-const MathDailyStarLimit = 30
+const MathDailyStarLimit = 40
+const PreviousMathDailyStarLimit = 30
 
 type MathSession struct {
+	PolicyVersion int            `json:"policyVersion,omitempty"`
 	RewardVersion int            `json:"rewardVersion,omitempty"`
 	Closed        bool           `json:"closed"`
 	ID            string         `json:"id"`
@@ -97,7 +99,9 @@ func (s MathSettings) legacyStars() int {
 }
 
 // Stars rewards the selected work, not speed or a streak. Choice has less weight.
-func (s MathSettings) Stars() int {
+func (s MathSettings) Stars() int { return s.previousStars() + 1 }
+
+func (s MathSettings) previousStars() int {
 	stars := s.legacyStars()
 	if s.Level == "columnar" {
 		if s.Operation == "*" {
@@ -125,7 +129,7 @@ func (s MathSettings) Stars() int {
 }
 
 func NewMathSession(id string, p int64, settings MathSettings, now time.Time) MathSession {
-	s := MathSession{RewardVersion: 2, ID: id, ParticipantID: p, Settings: settings, CreatedAt: now.UTC(), Answers: []MathAnswer{}}
+	s := MathSession{RewardVersion: 3, ID: id, ParticipantID: p, Settings: settings, CreatedAt: now.UTC(), Answers: []MathAnswer{}}
 	max := 10
 	if settings.Level == "medium" {
 		max = 25
@@ -298,6 +302,9 @@ func (s *MathSession) Submit(index int, values map[string]int, now time.Time) er
 	stars := 0
 	if correct {
 		stars = s.Settings.Stars()
+		if s.RewardVersion == 2 {
+			stars = s.Settings.previousStars()
+		}
 		if s.RewardVersion == 0 {
 			stars = s.Settings.legacyStars()
 		}
@@ -333,7 +340,7 @@ func (s MathSession) View() MathView {
 }
 
 func (s MathSession) Validate() error {
-	if (s.RewardVersion != 0 && s.RewardVersion != 2) || len(s.ID) != 32 || s.ParticipantID <= 0 || s.CreatedAt.IsZero() || s.Settings.Validate() != nil || len(s.Questions) != s.Settings.Count() || len(s.Answers) > len(s.Questions) {
+	if (s.RewardVersion != 0 && s.RewardVersion != 2 && s.RewardVersion != 3) || len(s.ID) != 32 || s.ParticipantID <= 0 || s.CreatedAt.IsZero() || s.Settings.Validate() != nil || len(s.Questions) != s.Settings.Count() || len(s.Answers) > len(s.Questions) {
 		return ErrInvalidInput
 	}
 	for _, c := range s.ID {
@@ -381,8 +388,12 @@ func (s MathSession) Validate() error {
 // the daily total while holding the participant lock, then persists both changes.
 func (s *MathSession) AwardAnswer(index, earned int) *ActivityReward {
 	a := s.Answers[index]
-	if s.RewardVersion == 2 {
-		a.Stars = min(a.Stars, max(0, MathDailyStarLimit-earned))
+	if s.RewardVersion >= 2 {
+		limit := MathDailyStarLimit
+		if s.RewardVersion == 2 {
+			limit = PreviousMathDailyStarLimit
+		}
+		a.Stars = min(a.Stars, max(0, limit-earned))
 		s.Answers[index] = a
 	}
 	if a.Stars == 0 {

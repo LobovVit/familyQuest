@@ -6,6 +6,14 @@ import (
 )
 
 func (s *Server) learningRoutes() {
+	s.mux.Handle("POST /api/reading/complete", s.authorize(false, func(w http.ResponseWriter, r *http.Request) {
+		var body domain.ReadingCompletion
+		if !familyBody(w, r, &body) {
+			return
+		}
+		v, err := s.store.CompleteReading(r.Context(), principal(r), body)
+		respond(w, v, err)
+	}))
 	s.mux.Handle("POST /api/math/{id}/finish", s.authorize(false, func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.store.FinishMath(r.Context(), principal(r), r.PathValue("id"))
 		respond(w, v, err)

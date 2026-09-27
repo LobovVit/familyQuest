@@ -30,7 +30,7 @@ func (b BackupData) validateLearning() error {
 			}
 			activeOwners[s.ParticipantID] = true
 		}
-		if b.Version < 4 && s.RewardVersion != 0 {
+		if (b.Version < 4 && s.RewardVersion != 0) || (b.Version < 5 && s.RewardVersion == 3) {
 			return domain.ErrInvalidInput
 		}
 		sessions[s.ID] = s
@@ -59,6 +59,17 @@ func (b BackupData) validateLearning() error {
 			}
 			a := s.Answers[index]
 			if !a.Correct || r.Stars != a.Stars || r.Smiles != 0 || r.Date != a.Date {
+				return domain.ErrInvalidInput
+			}
+		case "reading":
+			valid := false
+			for _, level := range []string{"phrases", "sentences", "advanced"} {
+				c := domain.ReadingCompletion{ID: r.SourceKey, Level: level}
+				if c.Validate() == nil && r.Title == c.Title() && r.Stars >= 0 && r.Stars <= c.Stars() {
+					valid = true
+				}
+			}
+			if b.Version < 5 || people[r.ParticipantID] != domain.RoleChild || !valid || r.Smiles != 0 {
 				return domain.ErrInvalidInput
 			}
 		case "sport":
@@ -93,16 +104,34 @@ func (b BackupData) validateLearning() error {
 	}
 	// Check the new daily budget across sessions, including sessions resumed after midnight.
 	daily := map[string]int{}
+	previousDaily := map[string]int{}
 	for _, session := range b.MathSessions {
-		if session.RewardVersion != 2 {
+		if session.RewardVersion < 2 {
 			continue
 		}
 		for _, a := range session.Answers {
 			key := fmt.Sprintf("%d/%s", session.ParticipantID, a.Date)
 			daily[key] += a.Stars
+			if session.RewardVersion == 2 {
+				previousDaily[key] += a.Stars
+				if previousDaily[key] > domain.PreviousMathDailyStarLimit {
+					return domain.ErrInvalidInput
+				}
+			}
 			if daily[key] > domain.MathDailyStarLimit {
 				return domain.ErrInvalidInput
 			}
+		}
+	}
+	readingDaily := map[string]int{}
+	for _, r := range b.ActivityRewards {
+		if r.Source != "reading" {
+			continue
+		}
+		key := fmt.Sprintf("%d/%s", r.ParticipantID, r.Date)
+		readingDaily[key] += r.Stars
+		if readingDaily[key] > domain.ReadingDailyStarLimit {
+			return domain.ErrInvalidInput
 		}
 	}
 	return nil

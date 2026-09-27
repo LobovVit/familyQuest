@@ -12,6 +12,7 @@ const (
 )
 
 type Principal struct {
+	FamilyID       int64
 	DeviceID       string
 	ConfirmedUntil int64
 	SessionVersion int64
@@ -54,6 +55,7 @@ var (
 )
 
 type Participant struct {
+	FamilyID       int64     `json:"familyId,omitempty"`
 	SessionVersion int64     `json:"-"`
 	ID             int64     `json:"id"`
 	Name           string    `json:"name"`

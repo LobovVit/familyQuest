@@ -1,5 +1,5 @@
 export type ParticipantRole = 'parent' | 'child' | 'school'
-export type Participant = { id: number; name: string; role: ParticipantRole; active: boolean }
+export type Participant = { familyId?: number; id: number; name: string; role: ParticipantRole; active: boolean }
 export type Schedule = 'once' | 'daily' | 'weekly' | 'monthly'
 export type TimeWindow = '' | 'morning' | 'day' | 'evening'
 export type BenefitType = 'self' | 'family' | 'care' | 'home'

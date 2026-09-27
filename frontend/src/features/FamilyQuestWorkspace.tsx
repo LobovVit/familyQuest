@@ -1,3 +1,5 @@
+import { FamilySubscription } from './subscription/FamilySubscription'
+import { LearningProfiles } from './settings/LearningProfiles'
 import { MyDay } from './today/MyDay'
 import { WorkspaceNavigation } from './navigation/WorkspaceNavigation'
 import { workspaceSections, type WorkspaceSection } from './navigation/sections'
@@ -482,8 +484,8 @@ export function FamilyQuestWorkspace() {
       {!currentParticipant && activeTab === 'day' && <FamilyOverview date={selectedDate} participants={participants} />}
 
       {activeTab === 'today' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <MyDay participant={currentParticipant} tasks={tasks} assignments={assignments} summary={dayLeaderboard.find(entry => entry.participantId === currentParticipant.id)} loading={isLoading} busyTask={busyTask} reviewCount={tasksForReview.length} onComplete={completeTask} onNavigate={setActiveTab} />}
-      {activeTab === 'reading' && currentParticipant?.role === 'child' && <ReadingTraining key={currentParticipant.id} />}
-      {activeTab === 'math' && currentParticipant?.role === 'child' && <MathTraining key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
+      {activeTab === 'reading' && currentParticipant?.role === 'child' && <ReadingTraining useAgePolicy={!!currentParticipant.familyId} key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
+      {activeTab === 'math' && currentParticipant?.role === 'child' && <MathTraining useAgePolicy={!!currentParticipant.familyId} key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
       {activeTab === 'earned' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <ActivityRewards key={currentParticipant.id} />}
 
       {activeTab === 'sport' && currentParticipant && (currentParticipant.role === 'parent' || currentParticipant.role === 'child') && <Sports key={currentParticipant.id} current={currentParticipant} participants={participants} date={selectedDate} onProgress={() => { void data.refresh() }} />}
@@ -492,6 +494,7 @@ export function FamilyQuestWorkspace() {
 
       {currentParticipant?.role === 'parent' && activeTab === 'catalog' && <Catalog chores={chores} editingId={editingChoreId} onAdd={startNewChore} onEdit={startEditChore} newEditor={<ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} editor={() => <ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} />}
 
+      {currentParticipant?.role === 'parent' && activeTab === 'users' && !!currentParticipant.familyId && <><FamilySubscription /><LearningProfiles participants={participants} /></>}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Devices confirm={confirmation.ask} onCurrentRevoked={() => { void enterViewMode() }} />}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Settings participants={participants} tasks={tasks} rewards={rewards} pinEdit={pinEdit} setPinEdit={setPinEdit} newParticipant={newParticipant} setNewParticipant={setNewParticipant} newReward={newReward} setNewReward={setNewReward} backupBusy={isBackupBusy} onSavePin={saveParticipantPIN} onDeleteParticipant={deleteParticipant} onCreateParticipant={createParticipant} onExport={exportBackup} onImport={importBackup} onDeleteReward={deleteReward} onCreateReward={createReward} onToggleRewardParticipant={toggleRewardParticipant} />}
       </div>

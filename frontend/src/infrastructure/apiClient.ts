@@ -13,7 +13,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   if (token) headers.set('Authorization', `Bearer ${token}`)
   const response = await fetch(`${API_URL}${path}`, { ...init, headers, credentials:'same-origin' })
   if (!response.ok) {
-    if (response.status === 401 && !path.startsWith('/api/session') && token === getToken()) clearSession()
+    if (response.status === 401 && !path.startsWith('/api/session') && path !== '/api/account/login' && token === getToken()) clearSession()
     const text = await response.text()
     let message = text || `HTTP ${response.status}`
     try { const payload = JSON.parse(text) as { error?:unknown }; if (typeof payload.error === 'string') message = payload.error } catch { /* plain-text response */ }

@@ -51,6 +51,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]bool{"saas": false}) })
+	s.profileRoutes()
 	s.deviceRoutes()
 	s.familyRoutes()
 	s.learningRoutes()
