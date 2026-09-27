@@ -69,6 +69,10 @@ jobs:
         shell: bash
         run: |
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            # checkout may replace the local tag ref with the peeled commit.
+            # Повторно получаем объект тега и сверяем его с проверяемым коммитом.
+            git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+            test "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")" = "$GITHUB_SHA"
             test "$GITHUB_REF_NAME" = "v$(cat VERSION)"
             test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
           fi
