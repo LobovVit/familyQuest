@@ -26,6 +26,7 @@ type Catalog interface {
 	Paid(context.Context, int64) (bool, error)
 }
 type Gateway struct {
+	SSO          *SSO
 	Version      *httpapi.VersionInfo
 	catalog      Catalog
 	origin       *url.URL
@@ -114,16 +115,28 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if g.SSO != nil && r.URL.Path == "/api/account/backchannel-logout" {
+		g.backchannel(w, r)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead && !httpapi.SameSiteRequest(r) {
 		fail(w, 403, "Недопустимый источник запроса")
 		return
 	}
+	if g.SSO != nil && (r.URL.Path == "/api/account/authorize" || r.URL.Path == "/api/account/callback" || r.URL.Path == "/api/account/exchange" || r.URL.Path == "/api/account/restore" || r.URL.Path == "/api/account/profile") {
+		g.sso(w, r)
+		return
+	}
 	if r.URL.Path == "/api/account/login" {
+		if g.SSO != nil {
+			fail(w, 404, "Используйте единый вход")
+			return
+		}
 		g.login(w, r)
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/config" {
-		jsonResponse(w, 200, map[string]bool{"saas": true})
+		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil})
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/version" && g.Version != nil {
@@ -145,6 +158,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/session/logout" {
+		if g.SSO != nil {
+			g.logoutSSO(w, r)
+			return
+		}
 		g.proxy.ServeHTTP(w, r)
 		return
 	}
@@ -161,6 +178,18 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if json.Unmarshal(response, &state) != nil || state.Principal.FamilyID <= 0 || state.Subscription.FamilyID != state.Principal.FamilyID {
 		fail(w, 503, "Некорректный ответ проверки доступа")
 		return
+	}
+	if g.SSO != nil {
+		c, err := r.Cookie(g.SSO.sessionName())
+		if err != nil {
+			fail(w, 401, "Повторите единый вход")
+			return
+		}
+		session, ok := g.SSO.Sessions.Get(c.Value)
+		if !ok || session.Scope != strconv.FormatInt(state.Principal.FamilyID, 10) {
+			fail(w, 401, "Сессия единого входа завершена")
+			return
+		}
 	}
 	if state.Subscription.Status != "active" {
 		fail(w, 401, "Доступ к семье приостановлен")

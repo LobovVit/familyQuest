@@ -51,7 +51,7 @@ func (p *Platform) ConfigureAccess(ctx context.Context, role string) error {
 		return fmt.Errorf("access role requires no administrative attributes or memberships")
 	}
 	name := pgx.Identifier{role}.Sanitize()
-	if _, e = tx.Exec(ctx, "alter role "+name+" noinherit; grant usage on schema fq_platform to "+name+"; grant select on fq_platform.accounts,fq_platform.families,fq_platform.payments to "+name); e != nil {
+	if _, e = tx.Exec(ctx, "alter role "+name+" noinherit; grant usage on schema fq_platform to "+name+"; grant select on fq_platform.accounts,fq_platform.families,fq_platform.payments,fq_platform.identities to "+name); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)
@@ -89,7 +89,7 @@ func (p *Platform) CheckAccessRuntime(ctx context.Context) error {
 		return fmt.Errorf("access runtime must not access family tables")
 	}
 	var catalogSafe bool
-	if e := p.root.pool.QueryRow(ctx, `select bool_and(has_table_privilege(current_user,c.oid,'SELECT') and not has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='fq_platform' and c.relname in ('accounts','families','payments')`).Scan(&catalogSafe); e != nil {
+	if e := p.root.pool.QueryRow(ctx, `select bool_and(has_table_privilege(current_user,c.oid,'SELECT') and not has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='fq_platform' and c.relname in ('accounts','families','payments','identities')`).Scan(&catalogSafe); e != nil {
 		return e
 	}
 	if !catalogSafe {

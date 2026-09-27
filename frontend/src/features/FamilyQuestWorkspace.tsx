@@ -39,7 +39,7 @@ type PinPrompt = {
 type ActiveTab = WorkspaceSection
 const tabs = workspaceSections
 
-export function FamilyQuestWorkspace() {
+export function FamilyQuestWorkspace({sso=false}:{sso?:boolean}) {
  const { downloadBackup, restoreBackup } = useRuntime()
   const [selectedDate, setSelectedDate] = useState(() => localDate(new Date()))
   const [activeTab, setActiveTab] = useState<ActiveTab>('today')
@@ -463,7 +463,7 @@ export function FamilyQuestWorkspace() {
           </div>
           <button className="today-shortcut" disabled={selectedDate === localDate(new Date())} onClick={() => setSelectedDate(localDate(new Date()))}>Сегодня</button>
         </div>
-        <UserMenu current={currentParticipant} participants={participants} open={isUserMenuOpen} onToggle={() => setIsUserMenuOpen(value => !value)} onView={enterViewMode} onSelect={askForParticipant} />
+        <UserMenu sso={sso} current={currentParticipant} participants={participants} open={isUserMenuOpen} onToggle={() => setIsUserMenuOpen(value => !value)} onView={enterViewMode} onSelect={askForParticipant} />
       </>
     )
   }

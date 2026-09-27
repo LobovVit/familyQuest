@@ -65,3 +65,8 @@
 .family-footer { text-align: center; font-size: 12px; color: var(--text-muted, #657367); padding: 12px; }
 @media(max-width:800px) { .family-hero { grid-template-columns: 1fr; padding: 24px; } .family-hero-garden { display: none !important; } .family-grid { grid-template-columns: 1fr; } .family-filters { grid-template-columns: 1fr 1fr; } }
 @media(max-width:480px) { .family-hero { padding: 20px; } .family-card, .family-editor { padding: 16px; } .family-fields, .family-step-edit { grid-template-columns: 1fr; } .family-nav { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 8px; } .family-nav button { flex-shrink: 0; } .family-filters { padding: 12px; gap: 10px; } .family-stats { grid-template-columns: 1fr; } }
+
+.account-entry .remember-choice { display: flex; align-items: center; gap: 10px; margin: 16px 0; cursor: pointer; }
+.account-entry .remember-choice input { width: 20px; height: 20px; flex: 0 0 20px; margin: 0; }
+.account-entry a.button { display: block; padding: 12px 16px; margin: 12px 0; border-radius: 8px; background: #2e8f75; color: white; text-align: center; text-decoration: none; }
+.account-entry a.button:focus-visible { outline: 3px solid #193f34; outline-offset: 3px; }

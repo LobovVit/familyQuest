@@ -27,3 +27,24 @@ it('submits actual input values when autofill does not emit change events',async
  fireEvent.click(screen.getByRole('button',{name:'Войти'}))
  await waitFor(()=>expect(accountLogin).toHaveBeenCalledWith('parent@example.test','filled-by-browser'))
 })
+it('uses centralized login without an application password form in SSO mode', async () => {
+ const runtime={gateway:{restoreAccount:vi.fn().mockResolvedValue(null)},session:{subscribe:()=>()=>{},getParticipant:()=>null}} as unknown as Runtime
+ render(<RuntimeContext.Provider value={runtime}><AccountLogin sso /></RuntimeContext.Provider>)
+ await waitFor(()=>expect(screen.getByRole('link',{name:'Войти с единым аккаунтом'}).getAttribute('href')).toBe('/api/account/authorize'))
+ expect(screen.queryByLabelText('Пароль')).toBeNull()
+})
+it('completes SSO before opening the family workspace', async () => {
+ window.history.replaceState(null,'','/?sso=complete')
+ const response={participant:{id:1,familyId:2,name:'Родитель',role:'parent',active:true},token:'test'}
+ const ssoSession=vi.fn().mockResolvedValue([response.participant]),saveSession=vi.fn(),selectAccountProfile=vi.fn().mockResolvedValue(response)
+ const runtime={gateway:{ssoSession,selectAccountProfile},session:{subscribe:()=>()=>{},getParticipant:()=>null,saveSession}} as unknown as Runtime
+ render(<RuntimeContext.Provider value={runtime}><AccountLogin sso /></RuntimeContext.Provider>)
+ await screen.findByLabelText('Семейный профиль')
+ expect(saveSession).not.toHaveBeenCalled()
+ fireEvent.change(screen.getByLabelText('Семейный профиль'),{target:{value:'1'}})
+ fireEvent.change(screen.getByLabelText('PIN профиля'),{target:{value:'123456'}})
+ fireEvent.click(screen.getByRole('button',{name:'Открыть профиль'}))
+ await waitFor(()=>expect(saveSession).toHaveBeenCalledWith(response))
+ expect(selectAccountProfile).toHaveBeenCalledWith(1,'123456')
+ expect(window.location.search).toBe('')
+})

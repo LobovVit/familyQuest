@@ -2,12 +2,16 @@ import type { FamilyQuestGateway } from '../application/ports'
 import { api, ApiError } from './apiClient'
 
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
+let ssoCompletion: ReturnType<FamilyQuestGateway['ssoSession']> | undefined
 export const gateway: FamilyQuestGateway = {
  version: async () => {
   const { access, ...server } = await api<import('../domain/version').DeploymentInfo['server'] & { access?: import('../domain/version').DeploymentInfo['access'] }>('/api/version', { cache: 'no-store' })
   return { server, access, web: { version: import.meta.env.VITE_APP_VERSION || 'dev', commit: import.meta.env.VITE_APP_COMMIT || 'unknown', builtAt: import.meta.env.VITE_APP_BUILT_AT || 'unknown' } }
  },
  config: () => api('/api/config'),
+ ssoSession: () => ssoCompletion ??= api('/api/account/exchange', post({})),
+ restoreAccount: () => api<import('../domain/models').Participant[]>('/api/account/restore',post({})).catch(e=>{if(e instanceof ApiError && e.status===401)return null;throw e}),
+ selectAccountProfile: (participantId,pin) => api('/api/account/profile',post({participantId,pin})),
  accountLogin: (email, password) => api('/api/account/login', post({email, password})),
  subscription: () => api('/api/subscription'),
  learningPolicy: () => api('/api/learning-policy'),
@@ -34,7 +38,7 @@ export const gateway: FamilyQuestGateway = {
  leaderboard: (period, date) => api(`/api/leaderboard?period=${period}&date=${date}`),
  ratings: date => api(`/api/behavior-ratings?date=${date}`),
  restoreSession: () => api<import('../domain/models').LoginResponse>('/api/session').catch(error => { if (error instanceof ApiError && error.status === 401) return null; throw error }),
- logout: () => api('/api/session/logout', post({})),
+ logout: async () => { const result = await api<{logoutUrl?:string}>('/api/session/logout', post({})); if (result.logoutUrl) window.location.assign(result.logoutUrl); return result },
  confirmParent: pin => api('/api/session/confirm', post({pin})),
  devices: () => api('/api/devices'),
  revokeDevice: (id, proof) => api(`/api/devices/${id}`, {method:'DELETE',headers:{'X-FamilyQuest-Confirmation':proof}}),
