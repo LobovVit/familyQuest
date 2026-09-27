@@ -30,8 +30,19 @@ export function AccountLogin() {
    }
   }}>
    <label>Почта взрослого<input name="email" type="email" autoComplete="username" required maxLength={254} disabled={busy} /></label>
-   <label>Пароль<input name="password" type={visible ? 'text' : 'password'} autoComplete="current-password" required maxLength={72} disabled={busy} /></label>
-   <button type="button" aria-pressed={visible} onClick={() => setVisible(value => !value)}>{visible ? 'Скрыть пароль' : 'Показать пароль'}</button>
+   <div className="account-password">
+    <label htmlFor="account-password">Пароль</label>
+    <div className="account-password-field">
+     <input id="account-password" name="password" type={visible ? 'text' : 'password'} autoComplete="current-password" required maxLength={72} disabled={busy} />
+     <button className="account-password-toggle" type="button" disabled={busy} aria-label={visible ? 'Скрыть пароль' : 'Показать пароль'} title={visible ? 'Скрыть пароль' : 'Показать пароль'} aria-pressed={visible} aria-controls="account-password" onClick={() => setVisible(value => !value)}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+       <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+       <circle cx="12" cy="12" r="3" />
+       {visible && <path d="m3 3 18 18" />}
+      </svg>
+     </button>
+    </div>
+   </div>
    <p>Используйте пароль взрослого аккаунта. PIN семейного профиля понадобится после входа.</p>
    {error && <p role="alert">{error}</p>}
    <button disabled={busy} type="submit">{busy ? 'Входим…' : 'Войти'}</button>

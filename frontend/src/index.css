@@ -60,3 +60,10 @@ body {
 
 .app-version { max-width: 1200px; margin: 24px auto; padding: 0 20px; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
 .app-version summary { cursor: pointer; }
+
+.account-password { display: grid; gap: 6px; }
+.account-password-field { position: relative; }
+.account-password-field input { padding-right: 52px; min-height: 44px; }
+.account-password-field .account-password-toggle { position: absolute; top: 0; right: 2px; bottom: 0; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #667085; box-shadow: none; }
+.account-password-field .account-password-toggle:hover { background: #eef2ef; color: #1b6654; }
+.account-password-field .account-password-toggle:focus-visible { outline: 2px solid #278d72; outline-offset: -3px; }
