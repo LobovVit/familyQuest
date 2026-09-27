@@ -20,7 +20,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) != 2 {
-		return fmt.Errorf("usage: operator migrate|provision|claim-legacy|registry|payment|refund|suspend|resume|reset-account|grant-runtime|grant-core|grant-access < input.json")
+		return fmt.Errorf("usage: operator migrate|provision|claim-legacy|registry|payment|refund|suspend|resume|reset-account|bind-identity|grant-runtime|grant-core|grant-access < input.json")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -49,6 +49,15 @@ func run() error {
 		return nil
 	}
 	switch cmd {
+	case "bind-identity":
+		var in struct {
+			Issuer, Subject, Operator string
+			FamilyID                  int64
+		}
+		if e = decode(&in); e != nil {
+			return e
+		}
+		return p.BindIdentity(ctx, in.Issuer, in.Subject, in.FamilyID, in.Operator)
 	case "provision", "claim-legacy":
 		var in struct{ Name, Email, Password, Parent, PIN, Operator string }
 		if e = decode(&in); e != nil {

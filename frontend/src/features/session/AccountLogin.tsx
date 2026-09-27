@@ -1,14 +1,34 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRuntime } from '../../application/runtime'
 import { useSession } from '../../application/useSession'
 import '../family/family.css'
 
-export function AccountLogin() {
+export function AccountLogin({ sso = false }: { sso?: boolean }) {
  const { gateway } = useRuntime()
  const { login } = useSession()
  const [busy, setBusy] = useState(false)
  const [error, setError] = useState('')
  const [visible, setVisible] = useState(false)
+ useEffect(() => {
+  if (!sso || new URLSearchParams(window.location.search).get('sso') !== 'complete') return
+  let active = true
+  setBusy(true)
+  void gateway.ssoSession().then(result => {
+   if (!active) return
+   const url = new URL(window.location.href); url.searchParams.delete('sso')
+   window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+   login(result)
+  }).catch(e => { if (active) setError(e instanceof Error ? e.message : 'Не удалось завершить единый вход') })
+    .finally(() => { if (active) setBusy(false) })
+  return () => { active = false }
+ }, [sso, gateway, login])
+ if (sso) return <main className="account-entry"><section className="panel">
+  <h1>FamilyQuest 🌳</h1>
+  <p>Один аккаунт для всех подключённых сервисов. Подписка на каждый сервис оформляется отдельно.</p>
+  {error && <p role="alert">{error}</p>}
+  {busy ? <p role="status">Завершаем вход…</p> : <a className="button" href="/api/account/authorize">Войти с единым аккаунтом</a>}
+  <p>После входа выберите семейный профиль. Для переключения профиля используется его PIN.</p>
+ </section></main>
  return <main className="account-entry"><section className="panel">
   <h1>FamilyQuest 🌳</h1><p>Войдите в пространство вашей семьи</p>
   <form className="stack-form" onSubmit={async e => {

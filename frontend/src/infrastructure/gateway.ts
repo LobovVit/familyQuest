@@ -2,12 +2,14 @@ import type { FamilyQuestGateway } from '../application/ports'
 import { api, ApiError } from './apiClient'
 
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
+let ssoCompletion: ReturnType<FamilyQuestGateway['ssoSession']> | undefined
 export const gateway: FamilyQuestGateway = {
  version: async () => {
   const { access, ...server } = await api<import('../domain/version').DeploymentInfo['server'] & { access?: import('../domain/version').DeploymentInfo['access'] }>('/api/version', { cache: 'no-store' })
   return { server, access, web: { version: import.meta.env.VITE_APP_VERSION || 'dev', commit: import.meta.env.VITE_APP_COMMIT || 'unknown', builtAt: import.meta.env.VITE_APP_BUILT_AT || 'unknown' } }
  },
  config: () => api('/api/config'),
+ ssoSession: () => ssoCompletion ??= api('/api/account/exchange', post({})),
  accountLogin: (email, password) => api('/api/account/login', post({email, password})),
  subscription: () => api('/api/subscription'),
  learningPolicy: () => api('/api/learning-policy'),

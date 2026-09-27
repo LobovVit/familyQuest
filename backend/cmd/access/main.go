@@ -15,6 +15,7 @@ import (
 	"github.com/lobov/familyquest/backend/internal/access"
 	"github.com/lobov/familyquest/backend/internal/buildinfo"
 	"github.com/lobov/familyquest/backend/internal/httpapi"
+	"github.com/lobov/familyquest/backend/internal/identity"
 	"github.com/lobov/familyquest/backend/internal/store"
 )
 
@@ -33,6 +34,13 @@ func main() {
 	gateway, e := access.New(catalog, os.Getenv("CORE_ORIGIN"), os.Getenv("ACCESS_SHARED_SECRET"), os.Getenv("CORS_ORIGIN"))
 	if e != nil {
 		log.Fatal(e)
+	}
+	if os.Getenv("OIDC_ISSUER") != "" || os.Getenv("OIDC_CLIENT_ID") != "" || os.Getenv("OIDC_CLIENT_SECRET") != "" || os.Getenv("OIDC_REDIRECT_URL") != "" {
+		login, err := identity.New(ctx, identity.Config{Issuer: os.Getenv("OIDC_ISSUER"), ClientID: os.Getenv("OIDC_CLIENT_ID"), ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"), RedirectURL: os.Getenv("OIDC_REDIRECT_URL")})
+		if err != nil {
+			log.Fatal("configure OIDC: ", err)
+		}
+		gateway.SSO = access.NewSSO(login, catalog)
 	}
 	info := httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)}
 	gateway.Version = &info

@@ -9,7 +9,8 @@ export type ParticipantDraft = { name: string; role: Participant['role']; pin: s
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
  version(): Promise<import('../domain/version').DeploymentInfo>
- config(): Promise<{saas: boolean}>
+ config(): Promise<{saas: boolean; sso?: boolean}>
+ ssoSession(): Promise<LoginResponse>
  accountLogin(email: string, password: string): Promise<LoginResponse>
  subscription(): Promise<FamilySubscription>
  learningPolicy(): Promise<LearningPolicy>

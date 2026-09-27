@@ -17,6 +17,8 @@ import (
 	"github.com/lobov/familyquest/backend/internal/auth"
 	"github.com/lobov/familyquest/backend/internal/domain"
 	"github.com/lobov/familyquest/backend/internal/httpapi"
+	"github.com/lobov/familyquest/backend/internal/identity"
+	"github.com/lobov/familyquest/backend/internal/testoidc"
 )
 
 func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
@@ -211,4 +213,54 @@ func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
 	if w := call("GET", "/api/participants", sessionB.Token, "", nil); w.Code != 401 {
 		t.Fatal("suspended family", w.Code)
 	}
+	// SSO must bind the exact issuer+subject, not a matching email or family ID.
+	// SSO связывается строго по issuer+subject, а не email или ID из браузера.
+	provider := testoidc.New(t, nil)
+	oidcLogin, err := identity.New(ctx, identity.Config{Issuer: provider.Server.URL, ClientID: "familyquest", ClientSecret: "test-secret", RedirectURL: "https://family.example/api/account/callback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.SSO = access.NewSSO(oidcLogin, ap)
+	ssoLogin := func() *httptest.ResponseRecorder {
+		start := call("GET", "/api/account/authorize", "", "", nil)
+		code, state := provider.Code(t, start.Header().Get("Location"))
+		callback := call("GET", "/api/account/callback?code="+code+"&state="+state, "", "", start.Result().Cookies())
+		if callback.Code != 303 || callback.Header().Get("Location") != "https://family.example/?sso=complete" {
+			t.Fatal(callback.Code, callback.Body.String())
+		}
+		for _, c := range callback.Result().Cookies() {
+			if !c.HttpOnly || !c.Secure || c.Domain != "" {
+				t.Fatal("unsafe callback cookie")
+			}
+		}
+		exchange := call("POST", "/api/account/exchange", "", "{}", callback.Result().Cookies())
+		if replay := call("POST", "/api/account/exchange", "", "{}", callback.Result().Cookies()); replay.Code != 401 {
+			t.Fatal("replayed SSO handoff", replay.Code)
+		}
+		return exchange
+	}
+	if w := ssoLogin(); w.Code != 403 {
+		t.Fatal("unbound identity accepted", w.Code)
+	}
+	if err = p.BindIdentity(ctx, provider.Server.URL, "shared-person", ids[0], "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err = p.BindIdentity(ctx, provider.Server.URL, "shared-person", ids[1], "test"); err != domain.ErrConflict {
+		t.Fatal("identity silently reassigned", err)
+	}
+	ssoSession := ssoLogin()
+	if ssoSession.Code != 200 {
+		t.Fatal(ssoSession.Code, ssoSession.Body.String())
+	}
+	var ssoResult application.LoginResult
+	if json.Unmarshal(ssoSession.Body.Bytes(), &ssoResult) != nil || ssoResult.Participant.FamilyID != ids[0] {
+		t.Fatal("SSO family mismatch")
+	}
+	if w := call("GET", "/api/participants", ssoResult.Token, "", nil); w.Code != 200 {
+		t.Fatal("SSO session rejected", w.Code)
+	}
+	if w := call("POST", "/api/account/login", "", `{"email":"ignored","password":"ignored"}`, nil); w.Code != 404 {
+		t.Fatal("password login bypass in SSO mode", w.Code)
+	}
+
 }

@@ -26,6 +26,7 @@ type Catalog interface {
 	Paid(context.Context, int64) (bool, error)
 }
 type Gateway struct {
+	SSO          *SSO
 	Version      *httpapi.VersionInfo
 	catalog      Catalog
 	origin       *url.URL
@@ -118,12 +119,20 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "Недопустимый источник запроса")
 		return
 	}
+	if g.SSO != nil && (r.URL.Path == "/api/account/authorize" || r.URL.Path == "/api/account/callback" || r.URL.Path == "/api/account/exchange") {
+		g.sso(w, r)
+		return
+	}
 	if r.URL.Path == "/api/account/login" {
+		if g.SSO != nil {
+			fail(w, 404, "Используйте единый вход")
+			return
+		}
 		g.login(w, r)
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/config" {
-		jsonResponse(w, 200, map[string]bool{"saas": true})
+		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil})
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/version" && g.Version != nil {
