@@ -45,8 +45,8 @@ Back-channel logout и немедленный отзыв всех приклад
 
 Это подтверждает работу адаптера, **не проверяет браузерную SSO-сессию реального IdP**. При выборе и развёртывании provider нужен отдельный acceptance: войти в продукт A, затем открыть продукт B в том же браузере без повторного пароля; убедиться, что подписка A не открывает B.
 
-На момент подготовки `auth.lobov.family` отсутствует в DNS; общий IdP ещё не развёрнут. Production 0.2.0 продолжает прежний вход. Универсальное хранилище биллинга остаётся отдельным этапом из [архитектуры](multiproduct-billing.md).
+27.09.2026 развёрнут ZITADEL 4.16.0 на `auth.lovit.tech` с отдельной PostgreSQL 17 и login UI. Проверены HTTPS и OIDC discovery. Инфраструктура описана в [инструкции](../deploy/identity/README.md). Регистрация клиента FamilyQuest, перенос владельца, привязка identity и браузерный acceptance ещё не завершены. Production 0.2.0 продолжает прежний вход. Универсальное хранилище биллинга остаётся отдельным этапом из [архитектуры](multiproduct-billing.md).
 
 ## Источники протокольных решений
 
-[go-oidc: проверка ID Token](https://pkg.go.dev/github.com/coreos/go-oidc/v3/oidc), [oauth2: PKCE S256 и обмен кода](https://pkg.go.dev/golang.org/x/oauth2). Возможность импортировать bcrypt без исходного пароля подтверждена, например, [документацией ZITADEL](https://zitadel.com/docs/guides/migrate/users); это не означает, что ZITADEL уже выбран или установлен.
+[go-oidc: проверка ID Token](https://pkg.go.dev/github.com/coreos/go-oidc/v3/oidc), [oauth2: PKCE S256 и обмен кода](https://pkg.go.dev/golang.org/x/oauth2). Возможность импортировать bcrypt без исходного пароля подтверждена, например, [документацией ZITADEL](https://zitadel.com/docs/guides/migrate/users); импорт конкретного хеша владельца ещё требует отдельной проверки.
