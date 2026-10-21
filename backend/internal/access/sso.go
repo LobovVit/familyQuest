@@ -22,9 +22,8 @@ type IdentityCatalog interface {
 	Identity(context.Context, string, string) (int64, int64, error)
 }
 type handoff struct {
-	remember bool
-	subject  identity.Subject
-	expires  time.Time
+	subject identity.Subject
+	expires time.Time
 }
 type SSO struct {
 	Sessions *identity.Sessions
@@ -55,7 +54,6 @@ func (g *Gateway) sso(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Path {
 	case "/api/account/authorize":
-		http.SetCookie(w, &http.Cookie{Name: "fq-remember-choice", Value: r.URL.Query().Get("remember"), Path: "/", HttpOnly: true, Secure: s.Login.Secure(), SameSite: http.SameSiteLaxMode, MaxAge: 600})
 		s.Login.Start(w, r)
 	case "/api/account/callback":
 		subject, err := s.Login.Complete(w, r)
@@ -82,9 +80,7 @@ func (g *Gateway) sso(w http.ResponseWriter, r *http.Request) {
 			fail(w, 503, "Вход временно недоступен")
 			return
 		}
-		choice, _ := r.Cookie("fq-remember-choice")
-		remember := choice != nil && choice.Value == "1"
-		s.pending[code] = handoff{remember: remember, subject: subject, expires: time.Now().Add(time.Minute)}
+		s.pending[code] = handoff{subject: subject, expires: time.Now().Add(time.Minute)}
 		s.mu.Unlock()
 		s.cookie(w, code, 60)
 		http.Redirect(w, r, s.Login.ReturnURL(), http.StatusSeeOther)
@@ -122,13 +118,7 @@ func (g *Gateway) sso(w http.ResponseWriter, r *http.Request) {
 			fail(w, 503, "Не удалось открыть семейный профиль. Повторите вход.")
 			return
 		}
-		ttl := 12 * time.Hour
-		age := 0
-		if h.remember {
-			ttl = 30 * 24 * time.Hour
-			age = int(ttl.Seconds())
-		}
-		sessionID, err := s.Sessions.AddFor(h.subject, strconv.FormatInt(family, 10), ttl)
+		sessionID, err := s.Sessions.AddFor(h.subject, strconv.FormatInt(family, 10), h.subject.SessionTTL())
 		if err != nil {
 			fail(w, 401, "Повторите единый вход")
 			return
@@ -136,7 +126,7 @@ func (g *Gateway) sso(w http.ResponseWriter, r *http.Request) {
 		if old, e := r.Cookie(s.sessionName()); e == nil {
 			s.Sessions.Delete(old.Value)
 		}
-		s.sessionCookie(w, sessionID, age)
+		s.sessionCookie(w, sessionID, h.subject.CookieMaxAge())
 		// Clear the old device after Core has revoked it, as in password login.
 		// Удаляем прежний cookie устройства после его отзыва Core, как при входе по паролю.
 		http.SetCookie(w, &http.Cookie{Name: "familyquest_device", Path: "/api", HttpOnly: true, Secure: s.Login.Secure(), SameSite: http.SameSiteStrictMode, MaxAge: -1})

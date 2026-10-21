@@ -9,7 +9,7 @@ export type ParticipantDraft = { name: string; role: Participant['role']; pin: s
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
  version(): Promise<import('../domain/version').DeploymentInfo>
- config(): Promise<{saas: boolean; sso?: boolean}>
+ config(): Promise<{saas: boolean; sso?: boolean; loginUrl?: string}>
  ssoSession(): Promise<Participant[]>
  restoreAccount(): Promise<Participant[] | null>
  selectAccountProfile(participantId:number,pin:string): Promise<LoginResponse>

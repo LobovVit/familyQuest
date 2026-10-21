@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,6 +40,13 @@ func main() {
 		login, err := identity.New(ctx, identity.Config{Issuer: os.Getenv("OIDC_ISSUER"), ClientID: os.Getenv("OIDC_CLIENT_ID"), ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"), RedirectURL: os.Getenv("OIDC_REDIRECT_URL")})
 		if err != nil {
 			log.Fatal("configure OIDC: ", err)
+		}
+		if raw := os.Getenv("LOGIN_PORTAL_URL"); raw != "" {
+			u, err := url.Parse(raw)
+			if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+				log.Fatal("LOGIN_PORTAL_URL must be an HTTPS URL")
+			}
+			gateway.LoginPortalURL = raw
 		}
 		gateway.SSO = access.NewSSO(login, catalog)
 		if path := os.Getenv("SSO_SESSION_FILE"); path != "" {

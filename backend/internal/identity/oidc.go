@@ -18,11 +18,15 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type Subject struct{ Issuer, ID, SessionID string }
+type Subject struct {
+	Issuer, ID, SessionID string
+	RememberDays          int
+}
 type Config struct{ Issuer, ClientID, ClientSecret, RedirectURL string }
 type flow struct {
 	state, nonce, verifier string
 	expires                time.Time
+	rememberDays           int
 }
 type Login struct {
 	endSession string
@@ -116,8 +120,13 @@ func (l *Login) Start(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(405)
 		return
 	}
+	days, err := ParseRemember(r.URL.Query())
+	if err != nil {
+		http.Error(w, "Invalid remember duration", http.StatusBadRequest)
+		return
+	}
 	id := random()
-	f := flow{state: random(), nonce: random(), verifier: oauth2.GenerateVerifier(), expires: l.now().Add(10 * time.Minute)}
+	f := flow{rememberDays: days, state: random(), nonce: random(), verifier: oauth2.GenerateVerifier(), expires: l.now().Add(10 * time.Minute)}
 	l.mu.Lock()
 	for k, v := range l.flows {
 		if !l.now().Before(v.expires) {
@@ -179,7 +188,7 @@ func (l *Login) Complete(w http.ResponseWriter, r *http.Request) (Subject, error
 	if id.Claims(&claims) != nil || (claims.AuthorizedParty != "" && claims.AuthorizedParty != l.config.ClientID) || (len(id.Audience) > 1 && claims.AuthorizedParty != l.config.ClientID) {
 		return Subject{}, fail
 	}
-	return Subject{Issuer: l.config.Issuer, ID: id.Subject, SessionID: claims.SessionID}, nil
+	return Subject{Issuer: l.config.Issuer, ID: id.Subject, RememberDays: f.rememberDays, SessionID: claims.SessionID}, nil
 }
 
 // ReturnURL never accepts a caller-controlled redirect destination.
