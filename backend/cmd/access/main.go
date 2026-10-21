@@ -57,6 +57,15 @@ func main() {
 			gateway.SSO.Sessions = sessions
 		}
 	}
+	if key := os.Getenv("LOVIT_READ_TOKEN"); key != "" {
+		if gateway.SSO == nil {
+			log.Fatal("LOVIT_READ_TOKEN requires OIDC")
+		}
+		gateway.Portal, e = access.NewPortalReader(catalog, os.Getenv("OIDC_ISSUER"), key)
+		if e != nil {
+			log.Fatal(e)
+		}
+	}
 	info := httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)}
 	gateway.Version = &info
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

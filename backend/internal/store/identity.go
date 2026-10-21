@@ -48,3 +48,14 @@ func (p *Platform) Identity(ctx context.Context, issuer, subject string) (int64,
 	}
 	return family, owner, e
 }
+
+// PortalFamily resolves an existing binding, including a suspended family.
+// This read-only lookup does not grant permission to enter a family profile.
+func (p *Platform) PortalFamily(ctx context.Context, issuer, subject string) (int64, error) {
+	var family int64
+	err := p.root.pool.QueryRow(ctx, `select i.family_id from fq_platform.identities i join fq_platform.accounts a on a.family_id=i.family_id where i.issuer=$1 and i.subject=$2`, issuer, subject).Scan(&family)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = domain.ErrUnauthorized
+	}
+	return family, err
+}

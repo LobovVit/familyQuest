@@ -12,6 +12,7 @@ import (
 const AccessKeyHeader = "X-FamilyQuest-Access-Key"
 const IntrospectionPath = "/api/__access/introspect"
 const AccountSessionPath = "/api/__access/account-session"
+const SubscriptionSummaryPath = "/api/__access/subscription-summary"
 
 type AccessState struct {
 	Principal    domain.Principal          `json:"principal"`

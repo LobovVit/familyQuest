@@ -26,6 +26,7 @@ type Catalog interface {
 	Paid(context.Context, int64) (bool, error)
 }
 type Gateway struct {
+	Portal         *PortalReader
 	SSO            *SSO
 	LoginPortalURL string
 	Version        *httpapi.VersionInfo
@@ -118,6 +119,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if g.SSO != nil && r.URL.Path == "/api/account/backchannel-logout" {
 		g.backchannel(w, r)
+		return
+	}
+	if r.URL.Path == PortalAccountPath {
+		g.portalAccount(w, r)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead && !httpapi.SameSiteRequest(r) {
