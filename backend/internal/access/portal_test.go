@@ -52,3 +52,50 @@ func TestPortalSummaryFailsClosedAndCannotForwardCredentials(t *testing.T) {
 		})
 	}
 }
+
+type billingCatalog struct {
+	summaryCatalog
+	history bool
+}
+
+func (c billingCatalog) HasPaymentHistory(context.Context, int64) (bool, error) {
+	return c.history, nil
+}
+func TestPortalBillingContextEligibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, until, want string
+		access, history   bool
+	}{
+		{"permanent", "null", "lifetime", true, false},
+		{"history", `"2020-01-01T00:00:00Z"`, "payment_history", false, true},
+		{"new family", `"2020-01-01T00:00:00Z"`, "eligible", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `{"familyId":7,"name":"Known family","status":"active","accessUntil":%s,"access":%t}`, tc.until, tc.access)
+			}))
+			defer core.Close()
+			g, _ := New(fakeCatalog{}, core.URL, strings.Repeat("c", 40), "")
+			g.Portal, _ = NewPortalReader(billingCatalog{history: tc.history}, "https://issuer.example", strings.Repeat("p", 40))
+			request := func(body, key string) *httptest.ResponseRecorder {
+				r := httptest.NewRequest("POST", "https://family.example"+PortalBillingPath, strings.NewReader(body))
+				r.Header.Set("Content-Type", "application/json")
+				r.Header.Set("Authorization", "Bearer "+key)
+				w := httptest.NewRecorder()
+				g.ServeHTTP(w, r)
+				return w
+			}
+			body := `{"issuer":"https://issuer.example","subject":"owner"}`
+			w := request(body, strings.Repeat("p", 40))
+			if w.Code != 200 || !strings.Contains(w.Body.String(), `"eligibility":"`+tc.want+`"`) || !strings.Contains(w.Body.String(), `"subjectRef":"familyquest:7"`) {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			if w = request(`{"issuer":"https://issuer.example","subject":"owner","familyId":999}`, strings.Repeat("p", 40)); w.Code != 400 {
+				t.Fatal("caller-selected family accepted", w.Code)
+			}
+			if w = request(body, "wrong-key"); w.Code != 401 {
+				t.Fatal("unauthenticated context", w.Code)
+			}
+		})
+	}
+}

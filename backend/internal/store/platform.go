@@ -31,6 +31,13 @@ func (p *Platform) Migrate(ctx context.Context) error {
  create table if not exists fq_platform.audit(id bigserial primary key,family_id bigint not null,action text not null,operator text not null,created_at timestamptz not null default now());
  alter table fq_platform.payments add column if not exists refunded_at timestamptz;
  create table if not exists fq_platform.identities(issuer text not null,subject text not null,family_id bigint not null references fq_platform.families(id) on delete cascade,primary key(issuer,subject));
+ create table if not exists fq_platform.lovit_bindings(
+ family_id bigint primary key references fq_platform.families(id) on delete cascade,
+ subscription_id text not null unique,
+ revision bigint not null default -1,
+ active boolean not null default false,
+ access_until timestamptz,
+ updated_at timestamptz not null default now());
  revoke all on schema fq_platform from public;revoke all on all tables in schema fq_platform from public;`)
 	return e
 }
@@ -268,7 +275,7 @@ func (p *Platform) Account(ctx context.Context, email, password string) (int64, 
 }
 func (p *Platform) Subscription(ctx context.Context, id int64) (domain.FamilySubscription, error) {
 	v := domain.FamilySubscription{FamilyID: id}
-	e := p.root.pool.QueryRow(ctx, `select f.name,f.status,f.created_at,f.plan,a.email,exists(select 1 from fq_platform.payments x where x.family_id=f.id and x.starts_at<=now() and x.ends_at>now() and x.refunded_at is null) from fq_platform.families f join fq_platform.accounts a on a.family_id=f.id where f.id=$1`, id).Scan(&v.Name, &v.Status, &v.RegisteredAt, &v.Plan, &v.OwnerEmail, &v.Paid)
+	e := p.root.pool.QueryRow(ctx, `select f.name,f.status,f.created_at,f.plan,a.email,exists(select 1 from fq_platform.payments x where x.family_id=f.id and x.starts_at<=now() and x.ends_at>now() and x.refunded_at is null) OR exists(select 1 from fq_platform.lovit_bindings b where b.family_id=f.id and b.active and b.access_until>now()) from fq_platform.families f join fq_platform.accounts a on a.family_id=f.id where f.id=$1`, id).Scan(&v.Name, &v.Status, &v.RegisteredAt, &v.Plan, &v.OwnerEmail, &v.Paid)
 	if e != nil {
 		return v, e
 	}
@@ -279,7 +286,7 @@ func (p *Platform) Subscription(ctx context.Context, id int64) (domain.FamilySub
 		return v, e
 	}
 	db := &familyDB{pool: p.root.pool, schema: schema, role: roleFor(id)}
-	e = db.QueryRow(ctx, `select child_limit,access_until,(select count(*)::int from participants where active and role='child') from service_policy where id`).Scan(&v.ChildLimit, &v.AccessUntil, &v.ActiveChildren)
+	e = db.QueryRow(ctx, `select child_limit,access_until,(select count(*)::int from participants where active and role='child'),children_unlimited,billing_managed from service_policy where id`).Scan(&v.ChildLimit, &v.AccessUntil, &v.ActiveChildren, &v.ChildrenUnlimited, &v.BillingManaged)
 	v.Access = v.Status == "active" && (v.AccessUntil == nil || time.Now().Before(*v.AccessUntil))
 	return v, e
 }
@@ -341,6 +348,13 @@ func (p *Platform) RecordPayment(ctx context.Context, v ManualPayment) error {
 	var schema string
 	if e = tx.QueryRow(ctx, `select schema_name from fq_platform.families where id=$1 for update`, v.FamilyID).Scan(&schema); e != nil {
 		return e
+	}
+	var managed bool
+	if e = tx.QueryRow(ctx, `select exists(select 1 from fq_platform.lovit_bindings where family_id=$1)`, v.FamilyID).Scan(&managed); e != nil {
+		return e
+	}
+	if managed {
+		return domain.ErrConflict
 	}
 	var prior ManualPayment
 	e = tx.QueryRow(ctx, `select family_id,amount_minor,currency,starts_at,ends_at,child_limit from fq_platform.payments where reference=$1`, v.Reference).Scan(&prior.FamilyID, &prior.AmountMinor, &prior.Currency, &prior.StartsAt, &prior.EndsAt, &prior.ChildLimit)
@@ -462,7 +476,7 @@ func (p *Platform) configureRuntime(ctx context.Context, role string, withAccoun
 	}
 	grants := "alter role " + name + " noinherit; grant usage on schema fq_platform to " + name + "; grant select on fq_platform.families to " + name
 	if withAccounts {
-		grants += "; grant select on fq_platform.accounts,fq_platform.payments to " + name
+		grants += "; grant select on fq_platform.accounts,fq_platform.payments,fq_platform.lovit_bindings to " + name
 	} else {
 		grants += "; revoke all on fq_platform.accounts,fq_platform.payments from " + name
 	}

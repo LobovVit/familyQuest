@@ -24,13 +24,13 @@ func (p CorePlatform) Subscription(ctx context.Context, id int64) (domain.Family
 		return v, e
 	}
 	db := &familyDB{pool: p.root.pool, schema: schema, role: roleFor(id)}
-	e = db.QueryRow(ctx, `select child_limit,access_until,(select count(*)::int from participants where active and role='child') from service_policy where id`).Scan(&v.ChildLimit, &v.AccessUntil, &v.ActiveChildren)
+	e = db.QueryRow(ctx, `select child_limit,access_until,(select count(*)::int from participants where active and role='child'),children_unlimited,billing_managed from service_policy where id`).Scan(&v.ChildLimit, &v.AccessUntil, &v.ActiveChildren, &v.ChildrenUnlimited, &v.BillingManaged)
 	v.Access = v.Status == "active" && (v.AccessUntil == nil || time.Now().Before(*v.AccessUntil))
 	return v, e
 }
 func (p *Platform) Paid(ctx context.Context, id int64) (bool, error) {
 	var paid bool
-	e := p.root.pool.QueryRow(ctx, `select exists(select 1 from fq_platform.payments where family_id=$1 and starts_at<=now() and ends_at>now() and refunded_at is null)`, id).Scan(&paid)
+	e := p.root.pool.QueryRow(ctx, `select exists(select 1 from fq_platform.payments where family_id=$1 and starts_at<=now() and ends_at>now() and refunded_at is null) OR exists(select 1 from fq_platform.lovit_bindings where family_id=$1 and active and access_until>now())`, id).Scan(&paid)
 	return paid, e
 }
 
@@ -51,7 +51,7 @@ func (p *Platform) ConfigureAccess(ctx context.Context, role string) error {
 		return fmt.Errorf("access role requires no administrative attributes or memberships")
 	}
 	name := pgx.Identifier{role}.Sanitize()
-	if _, e = tx.Exec(ctx, "alter role "+name+" noinherit; grant usage on schema fq_platform to "+name+"; grant select on fq_platform.accounts,fq_platform.families,fq_platform.payments,fq_platform.identities to "+name); e != nil {
+	if _, e = tx.Exec(ctx, "alter role "+name+" noinherit; grant usage on schema fq_platform to "+name+"; grant select on fq_platform.accounts,fq_platform.families,fq_platform.payments,fq_platform.identities,fq_platform.lovit_bindings to "+name); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)
@@ -89,7 +89,7 @@ func (p *Platform) CheckAccessRuntime(ctx context.Context) error {
 		return fmt.Errorf("access runtime must not access family tables")
 	}
 	var catalogSafe bool
-	if e := p.root.pool.QueryRow(ctx, `select bool_and(has_table_privilege(current_user,c.oid,'SELECT') and not has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='fq_platform' and c.relname in ('accounts','families','payments','identities')`).Scan(&catalogSafe); e != nil {
+	if e := p.root.pool.QueryRow(ctx, `select bool_and(has_table_privilege(current_user,c.oid,'SELECT') and not has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='fq_platform' and c.relname in ('accounts','families','payments','identities','lovit_bindings')`).Scan(&catalogSafe); e != nil {
 		return e
 	}
 	if !catalogSafe {
