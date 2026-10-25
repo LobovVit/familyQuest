@@ -154,8 +154,9 @@ func (s *Store) CreateParticipant(ctx context.Context, participant Participant, 
 	}
 	defer rollback(tx)
 	var limit int
+	var unlimited bool
 	var until *time.Time
-	if err = tx.QueryRow(ctx, `select child_limit,access_until from service_policy where id for update`).Scan(&limit, &until); err != nil {
+	if err = tx.QueryRow(ctx, `select child_limit,access_until,children_unlimited from service_policy where id for update`).Scan(&limit, &until, &unlimited); err != nil {
 		return participant, err
 	}
 	if s.familyID > 0 && until != nil && !time.Now().Before(*until) {
@@ -166,7 +167,7 @@ func (s *Store) CreateParticipant(ctx context.Context, participant Participant, 
 		if err = tx.QueryRow(ctx, `select count(*) from participants where active and role='child'`).Scan(&count); err != nil {
 			return participant, err
 		}
-		if count >= limit {
+		if !unlimited && count >= limit {
 			return participant, domain.ErrConflict
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 )
 
 const PortalAccountPath = "/api/integrations/lovit/account"
+const PortalBillingPath = "/api/integrations/lovit/billing-context"
 
 type PortalCatalog interface {
 	PortalFamily(context.Context, string, string) (int64, error)
@@ -31,14 +33,16 @@ type PortalReader struct {
 
 // PortalSubscription excludes email, profiles, tokens and individual payments.
 type PortalSubscription struct {
-	Name           string     `json:"name"`
-	Status         string     `json:"status"`
-	Plan           string     `json:"plan"`
-	ChildLimit     int        `json:"childLimit"`
-	ActiveChildren int        `json:"activeChildren"`
-	AccessUntil    *time.Time `json:"accessUntil"`
-	Paid           bool       `json:"paid"`
-	Access         bool       `json:"access"`
+	ChildrenUnlimited bool       `json:"childrenUnlimited,omitempty"`
+	BillingManaged    bool       `json:"billingManaged,omitempty"`
+	Name              string     `json:"name"`
+	Status            string     `json:"status"`
+	Plan              string     `json:"plan"`
+	ChildLimit        int        `json:"childLimit"`
+	ActiveChildren    int        `json:"activeChildren"`
+	AccessUntil       *time.Time `json:"accessUntil"`
+	Paid              bool       `json:"paid"`
+	Access            bool       `json:"access"`
 }
 
 func NewPortalReader(catalog PortalCatalog, issuer, key string) (*PortalReader, error) {
@@ -104,8 +108,34 @@ func (g *Gateway) portalAccount(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "Subscription summary unavailable")
 		return
 	}
+	if r.URL.Path == PortalBillingPath {
+		historyReader, ok := p.catalog.(interface {
+			HasPaymentHistory(context.Context, int64) (bool, error)
+		})
+		if !ok {
+			fail(w, 503, "Billing context unavailable")
+			return
+		}
+		history, err := historyReader.HasPaymentHistory(r.Context(), family)
+		if err != nil {
+			fail(w, 503, "Billing context unavailable")
+			return
+		}
+		eligibility := "eligible"
+		if sub.Status != "active" {
+			eligibility = "suspended"
+		} else if sub.AccessUntil == nil {
+			eligibility = "lifetime"
+		} else if history {
+			eligibility = "payment_history"
+		} else if sub.Access || paid {
+			eligibility = "existing_access"
+		}
+		jsonResponse(w, 200, map[string]any{"connected": true, "subjectRef": "familyquest:" + strconv.FormatInt(family, 10), "name": sub.Name, "eligibility": eligibility, "billingManaged": sub.BillingManaged})
+		return
+	}
 	jsonResponse(w, 200, map[string]any{"connected": true, "subscription": PortalSubscription{
 		Name: sub.Name, Status: sub.Status, Plan: sub.Plan, ChildLimit: sub.ChildLimit,
-		ActiveChildren: sub.ActiveChildren, AccessUntil: sub.AccessUntil, Paid: paid, Access: sub.Access,
+		ActiveChildren: sub.ActiveChildren, AccessUntil: sub.AccessUntil, Paid: paid, Access: sub.Access, ChildrenUnlimited: sub.ChildrenUnlimited, BillingManaged: sub.BillingManaged,
 	}})
 }

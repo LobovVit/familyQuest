@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/lobov/familyquest/backend/internal/lovit"
 	"github.com/lobov/familyquest/backend/internal/store"
 	"io"
 	"os"
@@ -20,7 +21,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) != 2 {
-		return fmt.Errorf("usage: operator migrate|provision|claim-legacy|registry|payment|refund|suspend|resume|reset-account|bind-identity|grant-runtime|grant-core|grant-access < input.json")
+		return fmt.Errorf("usage: operator bind-lovit|sync-lovit|migrate|provision|claim-legacy|registry|payment|refund|suspend|resume|reset-account|bind-identity|grant-runtime|grant-core|grant-access < input.json")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -49,6 +50,31 @@ func run() error {
 		return nil
 	}
 	switch cmd {
+	case "bind-lovit", "sync-lovit":
+		var in struct {
+			FamilyID                 int64
+			SubscriptionID, Operator string
+		}
+		if e = decode(&in); e != nil {
+			return e
+		}
+		if cmd == "bind-lovit" {
+			return p.BindLOVIT(ctx, in.FamilyID, in.SubscriptionID, in.Operator)
+		}
+		subscription, err := p.LOVITBinding(ctx, in.FamilyID)
+		if err != nil {
+			return err
+		}
+		client, err := lovit.New(os.Getenv("LOVIT_ORIGIN"), os.Getenv("LOVIT_ENTITLEMENT_TOKEN"))
+		if err != nil {
+			return err
+		}
+		rights, err := client.Check(ctx, store.LOVITSubject(in.FamilyID), subscription)
+		if err != nil {
+			return err
+		}
+		return p.ApplyLOVIT(ctx, in.FamilyID, rights, in.Operator)
+
 	case "bind-identity":
 		var in struct {
 			Issuer, Subject, Operator string

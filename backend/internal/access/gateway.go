@@ -121,7 +121,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.backchannel(w, r)
 		return
 	}
-	if r.URL.Path == PortalAccountPath {
+	if r.URL.Path == PortalAccountPath || r.URL.Path == PortalBillingPath {
 		g.portalAccount(w, r)
 		return
 	}

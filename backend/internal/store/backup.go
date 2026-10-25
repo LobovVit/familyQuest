@@ -74,8 +74,9 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 			return domain.ErrInvalidInput
 		}
 		var limit int
+		var unlimited bool
 		var owner *int64
-		if err = tx.QueryRow(ctx, `select child_limit,owner_participant_id from service_policy where id for update`).Scan(&limit, &owner); err != nil {
+		if err = tx.QueryRow(ctx, `select child_limit,owner_participant_id,children_unlimited from service_policy where id for update`).Scan(&limit, &owner, &unlimited); err != nil {
 			return err
 		}
 		children := 0
@@ -91,7 +92,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 				found = true
 			}
 		}
-		if children > limit || !found {
+		if (!unlimited && children > limit) || !found {
 			return domain.ErrConflict
 		}
 	}
