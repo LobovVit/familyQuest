@@ -31,3 +31,8 @@ func (e LOVITEntitlement) Validate(subject, subscription string, now time.Time) 
 	}
 	return nil
 }
+
+type LOVITBinding struct {
+	FamilyID       int64
+	SubscriptionID string
+}

@@ -11,6 +11,7 @@ ARG APP_COMMIT=unknown
 ARG APP_BUILT_AT=unknown
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/lobov/familyquest/backend/internal/buildinfo.Version=${APP_VERSION} -X github.com/lobov/familyquest/backend/internal/buildinfo.Commit=${APP_COMMIT} -X github.com/lobov/familyquest/backend/internal/buildinfo.BuiltAt=${APP_BUILT_AT}" -o /bin/familyquest-api ./cmd/api
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/familyquest-operator ./cmd/operator
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/familyquest-lovit-sync ./cmd/lovit-sync
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/lobov/familyquest/backend/internal/buildinfo.Version=${APP_VERSION} -X github.com/lobov/familyquest/backend/internal/buildinfo.Commit=${APP_COMMIT} -X github.com/lobov/familyquest/backend/internal/buildinfo.BuiltAt=${APP_BUILT_AT}" -o /bin/familyquest-access ./cmd/access
 
 FROM alpine:3.22
@@ -22,12 +23,15 @@ LABEL org.opencontainers.image.version=$APP_VERSION org.opencontainers.image.rev
 
 WORKDIR /app
 
+RUN apk add --no-cache ca-certificates
+
 RUN addgroup -S familyquest && adduser -S -G familyquest -h /app familyquest
 
 RUN mkdir /app/sessions && chown familyquest:familyquest /app/sessions
 
 COPY --from=build /bin/familyquest-api /usr/local/bin/familyquest-api
 COPY --from=build /bin/familyquest-operator /usr/local/bin/familyquest-operator
+COPY --from=build /bin/familyquest-lovit-sync /usr/local/bin/familyquest-lovit-sync
 COPY --from=build /bin/familyquest-access /usr/local/bin/familyquest-access
 COPY --chown=familyquest:familyquest migrations ./migrations
 

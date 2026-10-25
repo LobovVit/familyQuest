@@ -132,3 +132,21 @@ func (p *Platform) HasPaymentHistory(ctx context.Context, family int64) (bool, e
 	err := p.root.pool.QueryRow(ctx, `select exists(select 1 from fq_platform.payments where family_id=$1)`, family).Scan(&yes)
 	return yes, err
 }
+
+// LOVITBindings pages only explicit opt-in bindings, never the family registry.
+func (p *Platform) LOVITBindings(ctx context.Context, after int64) ([]domain.LOVITBinding, error) {
+	rows, err := p.root.pool.Query(ctx, `select family_id,subscription_id from fq_platform.lovit_bindings where family_id>$1 order by family_id limit 100`, after)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.LOVITBinding{}
+	for rows.Next() {
+		var v domain.LOVITBinding
+		if err = rows.Scan(&v.FamilyID, &v.SubscriptionID); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
