@@ -1,4 +1,5 @@
 import { clearSession, getToken } from './session'
+import { ConflictError } from '../application/errors'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 export class ApiError extends Error {
@@ -17,6 +18,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
     const text = await response.text()
     let message = text || `HTTP ${response.status}`
     try { const payload = JSON.parse(text) as { error?:unknown }; if (typeof payload.error === 'string') message = payload.error } catch { /* plain-text response */ }
+    if (response.status === 409) throw new ConflictError(message)
     throw new ApiError(message, response.status)
   }
   if (response.status === 204) return undefined as T

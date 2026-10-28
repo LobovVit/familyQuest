@@ -96,7 +96,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 		}
 	}
 	// Lock before reading credentials so a concurrent PIN update cannot be lost.
-	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards, trusted_devices in access exclusive mode`); err != nil {
+	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards, trusted_devices, mcp_grants in access exclusive mode`); err != nil {
 		return err
 	}
 

@@ -5,6 +5,7 @@ import { WorkspaceNavigation } from './navigation/WorkspaceNavigation'
 import { workspaceSections, type WorkspaceSection } from './navigation/sections'
 import { useParentConfirmation } from '../application/useParentConfirmation'
 import { ParentConfirmation } from './session/ParentConfirmation'
+import { MCPConnections } from './session/MCPConnections'
 import { Devices } from './session/Devices'
 import type { LoginOptions } from '../domain/devices'
 import { ReadingTraining } from './learning/ReadingTraining'
@@ -39,7 +40,7 @@ type PinPrompt = {
 type ActiveTab = WorkspaceSection
 const tabs = workspaceSections
 
-export function FamilyQuestWorkspace() {
+export function FamilyQuestWorkspace({sso=false}:{sso?:boolean}) {
  const { downloadBackup, restoreBackup } = useRuntime()
   const [selectedDate, setSelectedDate] = useState(() => localDate(new Date()))
   const [activeTab, setActiveTab] = useState<ActiveTab>('today')
@@ -463,7 +464,7 @@ export function FamilyQuestWorkspace() {
           </div>
           <button className="today-shortcut" disabled={selectedDate === localDate(new Date())} onClick={() => setSelectedDate(localDate(new Date()))}>Сегодня</button>
         </div>
-        <UserMenu current={currentParticipant} participants={participants} open={isUserMenuOpen} onToggle={() => setIsUserMenuOpen(value => !value)} onView={enterViewMode} onSelect={askForParticipant} />
+        <UserMenu sso={sso} current={currentParticipant} participants={participants} open={isUserMenuOpen} onToggle={() => setIsUserMenuOpen(value => !value)} onView={enterViewMode} onSelect={askForParticipant} />
       </>
     )
   }
@@ -495,6 +496,7 @@ export function FamilyQuestWorkspace() {
       {currentParticipant?.role === 'parent' && activeTab === 'catalog' && <Catalog chores={chores} editingId={editingChoreId} onAdd={startNewChore} onEdit={startEditChore} newEditor={<ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} editor={() => <ChoreEditor draft={choreDraft} onCancel={cancelEditChore} onSave={saveChore} onToggleParticipant={toggleDraftParticipant} participants={participants} setDraft={setChoreDraft} />} />}
 
       {currentParticipant?.role === 'parent' && activeTab === 'users' && !!currentParticipant.familyId && <><FamilySubscription /><LearningProfiles participants={participants} /></>}
+      {currentParticipant?.role === 'parent' && activeTab === 'users' && <MCPConnections key={currentParticipant.id} participants={participants} confirm={confirmation.ask} />}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Devices confirm={confirmation.ask} onCurrentRevoked={() => { void enterViewMode() }} />}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Settings participants={participants} tasks={tasks} rewards={rewards} pinEdit={pinEdit} setPinEdit={setPinEdit} newParticipant={newParticipant} setNewParticipant={setNewParticipant} newReward={newReward} setNewReward={setNewReward} backupBusy={isBackupBusy} onSavePin={saveParticipantPIN} onDeleteParticipant={deleteParticipant} onCreateParticipant={createParticipant} onExport={exportBackup} onImport={importBackup} onDeleteReward={deleteReward} onCreateReward={createReward} onToggleRewardParticipant={toggleRewardParticipant} />}
       </div>

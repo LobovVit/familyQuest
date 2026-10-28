@@ -9,6 +9,7 @@ import (
 )
 
 type LearningRepository interface {
+	StartReading(context.Context, int64, domain.ReadingCompletion, time.Time) error
 	CompleteReading(context.Context, int64, domain.ReadingCompletion, time.Time) (domain.ActivityReward, error)
 	FinishMath(context.Context, int64, string) (domain.MathSession, error)
 	CreateMathSession(context.Context, domain.MathSession) (domain.MathSession, error)
@@ -18,7 +19,7 @@ type LearningRepository interface {
 }
 
 func (s *Service) StartMath(ctx context.Context, p domain.Principal, settings domain.MathSettings) (domain.MathView, error) {
-	if err := s.writable(ctx); err != nil {
+	if err := s.writable(ctx, p, interactiveMutation); err != nil {
 		return domain.MathView{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -55,6 +56,10 @@ func (s *Service) MathSessions(ctx context.Context, p domain.Principal) ([]domai
 	return out, nil
 }
 func (s *Service) AnswerMath(ctx context.Context, p domain.Principal, id string, index int, values map[string]int) (domain.MathView, error) {
+	// Already started lessons remain usable after expiry, but never by an agent.
+	if err := s.authorizeMutation(p, interactiveMutation); err != nil {
+		return domain.MathView{}, err
+	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
 		return domain.MathView{}, domain.ErrForbidden
 	}
@@ -75,6 +80,10 @@ func (s *Service) ActivityRewards(ctx context.Context, p domain.Principal) ([]do
 }
 
 func (s *Service) FinishMath(ctx context.Context, p domain.Principal, id string) (domain.MathView, error) {
+	// Already started lessons remain usable after expiry, but never by an agent.
+	if err := s.authorizeMutation(p, interactiveMutation); err != nil {
+		return domain.MathView{}, err
+	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
 		return domain.MathView{}, domain.ErrForbidden
 	}
@@ -86,7 +95,7 @@ func (s *Service) FinishMath(ctx context.Context, p domain.Principal, id string)
 }
 
 func (s *Service) CompleteReading(ctx context.Context, p domain.Principal, completion domain.ReadingCompletion) (domain.ActivityReward, error) {
-	if err := s.writable(ctx); err != nil {
+	if err := s.writable(ctx, p, interactiveMutation); err != nil {
 		return domain.ActivityReward{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -105,14 +114,11 @@ func (s *Service) StartReading(ctx context.Context, p domain.Principal, c domain
 	if p.Role != domain.RoleChild || p.ParticipantID <= 0 || (s.familyID > 0 && p.FamilyID != s.familyID) {
 		return domain.ErrForbidden
 	}
-	if e := s.writable(ctx); e != nil {
+	if e := s.writable(ctx, p, interactiveMutation); e != nil {
 		return e
 	}
-	repo, ok := s.repo.(interface {
-		StartReading(context.Context, int64, domain.ReadingCompletion, time.Time) error
-	})
-	if !ok {
-		return domain.ErrForbidden
+	if err := c.Validate(); err != nil {
+		return err
 	}
-	return repo.StartReading(ctx, p.ParticipantID, c, s.now())
+	return s.repo.StartReading(ctx, p.ParticipantID, c, s.now())
 }

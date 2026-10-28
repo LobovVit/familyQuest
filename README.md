@@ -1,8 +1,11 @@
 # FamilyQuest
 
+С версии 0.2.0 доступен отдельный [сервис доступа перед API](docs/access-service.md) с разделением SQL-прав и сетей. В этом режиме после подключения семей используйте `grant-core`; `grant-runtime` предназначен для SaaS без прокси.
+
 Семейный планер, рейтинги, награды и совместные занятия. Go, PostgreSQL, React и TypeScript. По умолчанию работает домашний режим одной семьи. Опциональный SaaS-режим поддерживает закрытый пилот: изоляцию семей, взрослые аккаунты, возрастные настройки и подписку на семью с лимитом детей. Регистрация и учёт платежей выполняются оператором.
 
 - [Архитектура и Clean Architecture](docs/architecture.md)
+- [Аудит кода и документации 28.10.2026](docs/review-2026-10-28.md)
 - [SaaS: семьи, возраст и подписки](docs/saas-architecture.md)
 - [Запуск и управление SaaS-пилотом](docs/saas-operations.md)
 - [Yandex Cloud и оценка YDB Serverless](docs/yandex-cloud.md)
@@ -45,15 +48,18 @@ Production не публикует API и БД. Внешний reverse proxy з�
 
 ## Разработка и проверки
 
-Go-версия указана в `backend/go.mod`, frontend использует Node 24.
+Go-версия указана в `backend/go.mod` и согласована с Dockerfile: минимум 1.27.3, включая исправления стандартной библиотеки. Frontend использует Node 24. Go с `GOTOOLCHAIN=auto` загрузит требуемую версию; при отключённом автоподборе установите её самостоятельно.
 
 ```bash
 go -C backend test -race ./...
 go -C backend vet ./...
+go -C backend run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+python3 scripts/check-doc-links.py
 npm --prefix frontend ci
 npm --prefix frontend run lint
 npm --prefix frontend test
 npm --prefix frontend run build
+npm --prefix frontend audit --audit-level=moderate
 ```
 
 Интеграционные Go-тесты требуют `FAMILYQUEST_TEST_DATABASE_URL`, указывающий **только на отдельную одноразовую PostgreSQL**: они удаляют тестовые данные. Без этой переменной DB-тесты пропускаются. CI поднимает собственную PostgreSQL и выполняет их вместе с unit-тестами, проверкой форматирования и сборкой обоих Docker-образов.
@@ -191,3 +197,11 @@ npm --prefix frontend run build
 
 Это собственная авторизация FamilyQuest по PIN. Вход с Apple ID и passkeys/Face ID/
 Touch ID пока не подключены.
+
+### Версия и релизы
+
+Текущая версия продукта задаётся в `VERSION`; опубликованные релизы помечаются аннотированными тегами `vX.Y.Z`. Работающие версии сервера и интерфейса отображаются внизу страницы в «О приложении». [Сборка, GitHub Releases и установка конкретного тега](docs/releases.md).
+
+### ИИ-агенты через MCP
+
+В **Настройки → ИИ-подключения · MCP** родитель может создать отдельный ключ для выбранного профиля. Агент читает результаты и выполняет разрешённые роли отметки. По умолчанию ключ даёт только чтение. [Подключение, роли и эксплуатация](docs/mcp.md).

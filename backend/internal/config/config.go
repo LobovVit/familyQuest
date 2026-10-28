@@ -7,6 +7,8 @@ import (
 )
 
 type Config struct {
+	RequireAccess bool
+	AccessSecret  string
 	SaaS          bool
 	Migrate       bool
 	DatabaseURL   string
@@ -27,6 +29,8 @@ func Load() Config {
 		}
 	}
 	return Config{
+		RequireAccess: os.Getenv("FAMILYQUEST_REQUIRE_ACCESS") == "1",
+		AccessSecret:  os.Getenv("ACCESS_SHARED_SECRET"),
 		SaaS:          os.Getenv("FAMILYQUEST_SAAS") == "1",
 		Migrate:       os.Getenv("FAMILYQUEST_SKIP_MIGRATIONS") != "1",
 		DatabaseURL:   getEnv("DATABASE_URL", "postgres://familyquest:familyquest@localhost:5433/familyquest?sslmode=disable"),
@@ -39,6 +43,9 @@ func Load() Config {
 }
 
 func (c Config) Validate() error {
+	if c.RequireAccess && (!c.SaaS || c.Migrate || len(c.AccessSecret) < 32) {
+		return errors.New("private API requires SaaS, disabled migrations and ACCESS_SHARED_SECRET of at least 32 characters")
+	}
 	if c.DatabaseURL == "" {
 		return errors.New("DATABASE_URL is required")
 	}

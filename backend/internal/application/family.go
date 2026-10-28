@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/lobov/familyquest/backend/internal/domain"
 	"strings"
-	"time"
 )
 
 type FamilyRepository interface {
@@ -24,7 +23,7 @@ func (s *Service) FamilyEntries(ctx context.Context, p domain.Principal) ([]doma
 	return s.repo.ListFamilyEntries(ctx)
 }
 func (s *Service) validateFamilyParticipants(ctx context.Context, e domain.FamilyEntry) error {
-	if e.Kind == "sport" && e.Date > time.Now().UTC().Add(24*time.Hour).Format("2006-01-02") {
+	if e.Kind == "sport" && e.Date > domain.FamilyDate(s.now()) {
 		return domain.ErrInvalidInput
 	}
 	if err := e.Validate(); err != nil {
@@ -51,7 +50,7 @@ func (s *Service) validateFamilyParticipants(ctx context.Context, e domain.Famil
 	return nil
 }
 func (s *Service) CreateFamilyEntry(ctx context.Context, p domain.Principal, kind string, draft domain.FamilyDraft) (domain.FamilyEntry, error) {
-	if err := s.writable(ctx); err != nil {
+	if err := s.writable(ctx, p, interactiveMutation); err != nil {
 		return domain.FamilyEntry{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -75,7 +74,7 @@ func (s *Service) CreateFamilyEntry(ctx context.Context, p domain.Principal, kin
 	return s.repo.SaveFamilyEntry(ctx, e)
 }
 func (s *Service) EditFamilyEntry(ctx context.Context, p domain.Principal, id int64, version int, draft domain.FamilyDraft) (domain.FamilyEntry, error) {
-	if err := s.writable(ctx); err != nil {
+	if err := s.writable(ctx, p, interactiveMutation); err != nil {
 		return domain.FamilyEntry{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -119,7 +118,7 @@ func (s *Service) EditFamilyEntry(ctx context.Context, p domain.Principal, id in
 	return s.repo.SaveFamilyEntry(ctx, e)
 }
 func (s *Service) FamilyAction(ctx context.Context, p domain.Principal, id int64, cmd domain.FamilyCommand) (domain.FamilyEntry, error) {
-	if err := s.writable(ctx); err != nil {
+	if err := s.writable(ctx, p, familyProgress); err != nil {
 		return domain.FamilyEntry{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -128,11 +127,14 @@ func (s *Service) FamilyAction(ctx context.Context, p domain.Principal, id int64
 	if !domain.IsFamilyMember(p) {
 		return domain.FamilyEntry{}, domain.ErrForbidden
 	}
+	if p.MCPGrantID != "" && cmd.Action != "checkin" && cmd.Action != "step" && cmd.Action != "stage" {
+		return domain.FamilyEntry{}, domain.ErrForbidden
+	}
 	e, err := s.repo.GetFamilyEntry(ctx, id)
 	if err != nil {
 		return e, err
 	}
-	if err = e.ApplyFamilyCommand(p, cmd, time.Now()); err != nil {
+	if err = e.ApplyFamilyCommand(p, cmd, s.now()); err != nil {
 		return e, err
 	}
 	return s.repo.SaveFamilyEntry(ctx, e)

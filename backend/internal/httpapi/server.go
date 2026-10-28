@@ -39,6 +39,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if r.Header.Get("Authorization") != "" {
+		p, err := s.requestPrincipal(w, r)
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		r = withPrincipal(r, p)
+	}
 	limit := int64(1 << 20)
 	if strings.HasPrefix(r.URL.Path, "/api/family") {
 		limit = 2 << 20
@@ -52,6 +60,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]bool{"saas": false}) })
+	s.mcpRoutes()
 	s.profileRoutes()
 	s.deviceRoutes()
 	s.familyRoutes()

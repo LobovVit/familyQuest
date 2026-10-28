@@ -1,0 +1,362 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/lobov/familyquest/backend/internal/access"
+	"github.com/lobov/familyquest/backend/internal/application"
+	"github.com/lobov/familyquest/backend/internal/auth"
+	"github.com/lobov/familyquest/backend/internal/domain"
+	"github.com/lobov/familyquest/backend/internal/httpapi"
+	"github.com/lobov/familyquest/backend/internal/identity"
+	"github.com/lobov/familyquest/backend/internal/testoidc"
+)
+
+func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
+	dbURL := os.Getenv("FAMILYQUEST_TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("disposable PostgreSQL required")
+	}
+	ctx := context.Background()
+	root, e := Open(ctx, dbURL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer root.Close()
+	t.Chdir("../..")
+	p := NewPlatform(root)
+	if e = p.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	ids := []int64{}
+	defer func() {
+		for _, id := range ids {
+			for _, table := range []string{"audit", "payments", "accounts", "families"} {
+				column := "family_id"
+				if table == "families" {
+					column = "id"
+				}
+				_, _ = root.pool.Exec(ctx, "delete from fq_platform."+table+" where "+column+"=$1", id)
+			}
+			_, _ = root.pool.Exec(ctx, "drop schema "+schemaFor(id)+" cascade")
+			_, _ = root.pool.Exec(ctx, "drop role "+roleFor(id))
+		}
+	}()
+	for _, name := range []string{"A", "B"} {
+		id, err := p.Provision(ctx, name, name+suffix+"@example.test", "long-password-test", "Parent", "739281", "test", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	runtime := func(prefix string, configure func(context.Context, string) error) *Store {
+		role := prefix + suffix
+		if _, e = root.pool.Exec(ctx, "create role "+role+" login noinherit password 'runtime-test-only'"); e != nil {
+			t.Fatal(e)
+		}
+		if e = configure(ctx, role); e != nil {
+			t.Fatal(e)
+		}
+		u, _ := url.Parse(dbURL)
+		u.User = url.UserPassword(role, "runtime-test-only")
+		db, err := Open(ctx, u.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return db
+	}
+	// Explicit defers keep the operator pool open while runtime roles are cleaned up.
+	// Явная очистка сохраняет операторское соединение до удаления runtime-ролей.
+	coreRole := "fq_core_" + suffix
+	accessRole := "fq_access_" + suffix
+	core := runtime("fq_core_", p.ConfigureCore)
+	catalog := runtime("fq_access_", p.ConfigureAccess)
+	defer func() {
+		core.Close()
+		catalog.Close()
+		for _, role := range []string{coreRole, accessRole} {
+			_, _ = root.pool.Exec(ctx, "drop owned by "+role)
+			_, _ = root.pool.Exec(ctx, "drop role "+role)
+		}
+	}()
+	cp, ap := NewPlatform(core), NewPlatform(catalog)
+	if e = cp.CheckCoreRuntime(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if e = ap.CheckAccessRuntime(ctx); e != nil {
+		t.Fatal(e)
+	}
+	// Fail startup if an operator accidentally grants catalog write privileges.
+	// Ошибочная выдача записи в каталог должна блокировать запуск.
+	if _, e = root.pool.Exec(ctx, "grant update on fq_platform.payments to "+accessRole); e != nil {
+		t.Fatal(e)
+	}
+	if e = ap.CheckAccessRuntime(ctx); e == nil {
+		t.Fatal("accepted writable catalog")
+	}
+	if _, e = root.pool.Exec(ctx, "revoke update on fq_platform.payments from "+accessRole); e != nil {
+		t.Fatal(e)
+	}
+	for _, q := range []string{"select * from fq_platform.accounts", "select * from fq_platform.payments"} {
+		if _, e = core.pool.Exec(ctx, q); e == nil {
+			t.Fatal("core reads billing", q)
+		}
+	}
+	for _, q := range []string{"select * from " + schemaFor(ids[0]) + ".participants", "set role " + roleFor(ids[0]), "update fq_platform.families set status='suspended'"} {
+		if _, e = catalog.pool.Exec(ctx, q); e == nil {
+			t.Fatal("access overprivileged", q)
+		}
+	}
+	payment := ManualPayment{FamilyID: ids[0], Reference: "proxy-" + suffix, AmountMinor: 100, Currency: "BYN", StartsAt: time.Now().Add(-time.Hour), EndsAt: time.Now().Add(time.Hour), ChildLimit: 2, Operator: "test"}
+	if e = p.RecordPayment(ctx, payment); e != nil {
+		t.Fatal(e)
+	}
+	tokens, _ := auth.New(strings.Repeat("t", 40), time.Hour)
+	resolve := func(ctx context.Context, id int64) (*application.Service, error) {
+		repo, err := cp.Family(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return application.NewForFamily(repo, tokens.ForFamily(id), id), nil
+	}
+	key := strings.Repeat("k", 48)
+	origin := httptest.NewServer(httpapi.RequireAccess(httpapi.NewPrivateSaaS(CorePlatform{cp}, resolve, tokens, ""), key))
+	defer origin.Close()
+	gateway, err := access.New(ap, origin.URL, key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	portalKey := strings.Repeat("portal-reader-", 4)
+	gateway.Portal, err = access.NewPortalReader(ap, "https://portal-issuer.example", portalKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, sub := range []string{"owner-a", "owner-b"} {
+		if err = p.BindIdentity(ctx, "https://portal-issuer.example", sub, ids[i], "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	portalCall := func(subject, token, extra string) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"issuer":"https://portal-issuer.example","subject":%q%s}`, subject, extra)
+		r := httptest.NewRequest("POST", "https://family.example"+access.PortalAccountPath, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		gateway.ServeHTTP(w, r)
+		return w
+	}
+	portalRead := func(subject string, connected, paid, allowed bool, status string) {
+		t.Helper()
+		w := portalCall(subject, portalKey, "")
+		var result struct {
+			Connected    bool                       `json:"connected"`
+			Subscription *access.PortalSubscription `json:"subscription"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || result.Connected != connected {
+			t.Fatal("portal summary", w.Code, w.Body.String())
+		}
+		if connected && (result.Subscription == nil || result.Subscription.Paid != paid || result.Subscription.Access != allowed || result.Subscription.Status != status) {
+			t.Fatal("incorrect portal status", w.Body.String())
+		}
+		if !connected && result.Subscription != nil {
+			t.Fatal("unbound user received a family")
+		}
+		for _, forbidden := range []string{"ownerEmail", "participantId", "token", "reference", "amountMinor"} {
+			if strings.Contains(w.Body.String(), forbidden) {
+				t.Fatal("portal leaked private fields")
+			}
+		}
+		if len(w.Result().Cookies()) != 0 {
+			t.Fatal("summary issued a user session")
+		}
+	}
+	portalRead("owner-a", true, true, true, "active")
+	portalRead("owner-b", true, false, false, "active")
+	portalRead("unknown", false, false, false, "")
+	for _, k := range []string{"", key, "wrong"} {
+		if w := portalCall("owner-a", k, ""); w.Code != 401 {
+			t.Fatal("summary key isolation", w.Code)
+		}
+	}
+	if w := portalCall("owner-a", portalKey, fmt.Sprintf(`,"familyId":%d`, ids[1])); w.Code != 400 {
+		t.Fatal("browser chose a family", w.Code)
+	}
+	r := httptest.NewRequest("POST", origin.URL+httpapi.SubscriptionSummaryPath, strings.NewReader(fmt.Sprintf(`{"familyId":%d}`, ids[0])))
+	r.Header.Set(httpapi.AccessKeyHeader, portalKey)
+	w := httptest.NewRecorder()
+	origin.Config.Handler.ServeHTTP(w, r)
+	if w.Code != 401 {
+		t.Fatal("portal key accepted by Core", w.Code)
+	}
+	call := func(method, path, token, body string, cookies []*http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "https://family.example"+path, strings.NewReader(body))
+		r.Header.Set("X-FamilyQuest", "1")
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		gateway.ServeHTTP(w, r)
+		return w
+	}
+	login := call("POST", "/api/account/login", "", fmt.Sprintf(`{"email":%q,"password":"long-password-test"}`, "A"+suffix+"@example.test"), nil)
+	if login.Code != 200 {
+		t.Fatal(login.Code, login.Body.String())
+	}
+	var session application.LoginResult
+	if e = json.Unmarshal(login.Body.Bytes(), &session); e != nil {
+		t.Fatal(e)
+	}
+	if session.Participant.FamilyID != ids[0] {
+		t.Fatal("wrong family")
+	}
+	if w := call("GET", "/api/participants", session.Token, "", nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	sub := call("GET", "/api/subscription", session.Token, "", nil)
+	var subscription domain.FamilySubscription
+	_ = json.Unmarshal(sub.Body.Bytes(), &subscription)
+	if sub.Code != 200 || !subscription.Paid || !subscription.Access || subscription.OwnerEmail != "" {
+		t.Fatal(sub.Code, sub.Body.String())
+	}
+	remember := call("POST", "/api/session", session.Token, `{"participantId":1,"pin":"739281","remember":true,"deviceName":"Test device"}`, nil)
+	if remember.Code != 200 {
+		t.Fatal(remember.Code, remember.Body.String())
+	}
+	cookies := remember.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("missing remembered cookie")
+	}
+	if w := call("GET", "/api/session", "", "", cookies); w.Code != 200 {
+		t.Fatal("cookie session", w.Code, w.Body.String())
+	}
+	if e = p.RefundPayment(ctx, payment.Reference, "test"); e != nil {
+		t.Fatal(e)
+	}
+	portalRead("owner-a", true, false, false, "active")
+	if w := call("POST", "/api/participants", session.Token, `{"name":"Child","role":"child","pin":"391827"}`, nil); w.Code != 403 {
+		t.Fatal("unpaid write", w.Code)
+	}
+	if w := call("GET", "/api/participants", session.Token, "", nil); w.Code != 200 {
+		t.Fatal("unpaid read", w.Code)
+	}
+	if e = p.ResetAccount(ctx, "A"+suffix+"@example.test", "another-password-test", "test"); e != nil {
+		t.Fatal(e)
+	}
+	if w := call("GET", "/api/participants", session.Token, "", nil); w.Code != 401 {
+		t.Fatal("revoked token", w.Code)
+	}
+	if w := call("GET", "/api/session", "", "", cookies); w.Code != 401 {
+		t.Fatal("revoked device", w.Code)
+	}
+	loginB := call("POST", "/api/account/login", "", fmt.Sprintf(`{"email":%q,"password":"long-password-test"}`, "B"+suffix+"@example.test"), nil)
+	if loginB.Code != 200 {
+		t.Fatal(loginB.Code, loginB.Body.String())
+	}
+	var sessionB application.LoginResult
+	_ = json.Unmarshal(loginB.Body.Bytes(), &sessionB)
+	if sessionB.Participant.FamilyID == session.Participant.FamilyID {
+		t.Fatal("family crossover")
+	}
+	if e = p.Suspend(ctx, ids[1], true, "test"); e != nil {
+		t.Fatal(e)
+	}
+	portalRead("owner-b", true, false, false, "suspended")
+	if w := call("GET", "/api/participants", sessionB.Token, "", nil); w.Code != 401 {
+		t.Fatal("suspended family", w.Code)
+	}
+	// SSO must bind the exact issuer+subject, not a matching email or family ID.
+	// SSO связывается строго по issuer+subject, а не email или ID из браузера.
+	provider := testoidc.New(t, nil)
+	oidcLogin, err := identity.New(ctx, identity.Config{Issuer: provider.Server.URL, ClientID: "familyquest", ClientSecret: "test-secret", RedirectURL: "https://family.example/api/account/callback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.SSO = access.NewSSO(oidcLogin, ap)
+	ssoLogin := func() *httptest.ResponseRecorder {
+		start := call("GET", "/api/account/authorize?remember=1", "", "", nil)
+		code, state := provider.Code(t, start.Header().Get("Location"))
+		callback := call("GET", "/api/account/callback?code="+code+"&state="+state, "", "", start.Result().Cookies())
+		if callback.Code != 303 || callback.Header().Get("Location") != "https://family.example/?sso=complete" {
+			t.Fatal(callback.Code, callback.Body.String())
+		}
+		for _, c := range callback.Result().Cookies() {
+			if !c.HttpOnly || !c.Secure || c.Domain != "" {
+				t.Fatal("unsafe callback cookie")
+			}
+		}
+		exchange := call("POST", "/api/account/exchange", "", "{}", callback.Result().Cookies())
+		if replay := call("POST", "/api/account/exchange", "", "{}", callback.Result().Cookies()); replay.Code != 401 {
+			t.Fatal("replayed SSO handoff", replay.Code)
+		}
+		return exchange
+	}
+	if w := ssoLogin(); w.Code != 403 {
+		t.Fatal("unbound identity accepted", w.Code)
+	}
+	if err = p.BindIdentity(ctx, provider.Server.URL, "shared-person", ids[0], "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err = p.BindIdentity(ctx, provider.Server.URL, "shared-person", ids[1], "test"); err != domain.ErrConflict {
+		t.Fatal("identity silently reassigned", err)
+	}
+	ssoSession := ssoLogin()
+	if ssoSession.Code != 200 {
+		t.Fatal(ssoSession.Code, ssoSession.Body.String())
+	}
+	var profiles []domain.Participant
+	if json.Unmarshal(ssoSession.Body.Bytes(), &profiles) != nil || len(profiles) == 0 {
+		t.Fatal("profile list missing", ssoSession.Body.String())
+	}
+	if strings.Contains(ssoSession.Body.String(), `"token"`) {
+		t.Fatal("owner token exposed")
+	}
+	for _, c := range ssoSession.Result().Cookies() {
+		if c.Name == "__Host-familyquest-sso" && c.MaxAge != 2592000 {
+			t.Fatal("remember lifetime", c.MaxAge)
+		}
+	}
+	restored := call("POST", "/api/account/restore", "", "{}", ssoSession.Result().Cookies())
+	if restored.Code != 200 {
+		t.Fatal("restore", restored.Code, restored.Body.String())
+	}
+	if w := call("GET", "/api/chores", "", "", ssoSession.Result().Cookies()); w.Code != 401 {
+		t.Fatal("account cookie grants profile access", w.Code)
+	}
+	profileBody := fmt.Sprintf(`{"participantId":%d,"pin":"739281"}`, profiles[0].ID)
+	denied := call("POST", "/api/account/profile", "", fmt.Sprintf(`{"participantId":%d,"pin":"000000"}`, profiles[0].ID), ssoSession.Result().Cookies())
+	if denied.Code == 200 {
+		t.Fatal("wrong PIN accepted")
+	}
+	selected := call("POST", "/api/account/profile", "", profileBody, ssoSession.Result().Cookies())
+	var ssoResult application.LoginResult
+	if selected.Code != 200 || json.Unmarshal(selected.Body.Bytes(), &ssoResult) != nil || ssoResult.Participant.FamilyID != ids[0] {
+		t.Fatal("profile login", selected.Code, selected.Body.String())
+	}
+	if w := call("GET", "/api/participants", ssoResult.Token, "", ssoSession.Result().Cookies()); w.Code != 200 {
+		t.Fatal("SSO session rejected", w.Code)
+	}
+	if w := call("GET", "/api/participants", ssoResult.Token, "", nil); w.Code != 401 {
+		t.Fatal("SSO cookie bypass", w.Code)
+	}
+	gateway.SSO.Sessions.Revoke(identity.Subject{Issuer: provider.Server.URL, ID: "shared-person", SessionID: "shared-session"})
+	if w := call("GET", "/api/participants", ssoResult.Token, "", ssoSession.Result().Cookies()); w.Code != 401 {
+		t.Fatal("revoked SSO accepted", w.Code)
+	}
+	if w := call("POST", "/api/account/login", "", `{"email":"ignored","password":"ignored"}`, nil); w.Code != 404 {
+		t.Fatal("password login bypass in SSO mode", w.Code)
+	}
+
+}

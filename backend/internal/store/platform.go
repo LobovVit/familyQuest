@@ -30,6 +30,7 @@ func (p *Platform) Migrate(ctx context.Context) error {
  create table if not exists fq_platform.payments(reference text primary key,family_id bigint not null references fq_platform.families(id),amount_minor bigint not null check(amount_minor>0),currency text not null,starts_at timestamptz not null,ends_at timestamptz not null,child_limit int not null check(child_limit>=0),created_at timestamptz not null default now(),operator text not null,check(ends_at>starts_at));
  create table if not exists fq_platform.audit(id bigserial primary key,family_id bigint not null,action text not null,operator text not null,created_at timestamptz not null default now());
  alter table fq_platform.payments add column if not exists refunded_at timestamptz;
+ create table if not exists fq_platform.identities(issuer text not null,subject text not null,family_id bigint not null references fq_platform.families(id) on delete cascade,primary key(issuer,subject));
  revoke all on schema fq_platform from public;revoke all on all tables in schema fq_platform from public;`)
 	return e
 }
@@ -440,6 +441,9 @@ func (p *Platform) ResetAccount(ctx context.Context, email, password, operator s
 // ConfigureRuntime grants routing privileges without migration or billing writes.
 // ConfigureRuntime выдаёт права маршрутизации без миграций и изменения оплат.
 func (p *Platform) ConfigureRuntime(ctx context.Context, role string) error {
+	return p.configureRuntime(ctx, role, true)
+}
+func (p *Platform) configureRuntime(ctx context.Context, role string, withAccounts bool) error {
 	if role == "" {
 		return domain.ErrInvalidInput
 	}
@@ -456,7 +460,13 @@ func (p *Platform) ConfigureRuntime(ctx context.Context, role string) error {
 	if !safe {
 		return fmt.Errorf("runtime role must not have administrative attributes")
 	}
-	if _, e = tx.Exec(ctx, "alter role "+name+" noinherit;grant usage on schema fq_platform to "+name+"; grant select on fq_platform.families,fq_platform.accounts,fq_platform.payments to "+name); e != nil {
+	grants := "alter role " + name + " noinherit; grant usage on schema fq_platform to " + name + "; grant select on fq_platform.families to " + name
+	if withAccounts {
+		grants += "; grant select on fq_platform.accounts,fq_platform.payments to " + name
+	} else {
+		grants += "; revoke all on fq_platform.accounts,fq_platform.payments from " + name
+	}
+	if _, e = tx.Exec(ctx, grants); e != nil {
 		return e
 	}
 	rows, e := tx.Query(ctx, `select id from fq_platform.families`)

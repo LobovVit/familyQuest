@@ -220,7 +220,7 @@ func (e *FamilyEntry) ApplyFamilyCommand(actor Principal, cmd FamilyCommand, now
 	if e.Archived || (e.Kind == "proposal" && !e.Approved) {
 		return ErrConflict
 	}
-	if !ValidFamilyDate(cmd.Date) || cmd.Date > now.UTC().Add(24*time.Hour).Format("2006-01-02") {
+	if !ValidFamilyDate(cmd.Date) || cmd.Date > FamilyDate(now) {
 		return familyInvalid("укажите дату не позднее сегодняшней")
 	}
 	if len([]rune(cmd.Note)) > 2000 {

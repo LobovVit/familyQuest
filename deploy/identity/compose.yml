@@ -1,0 +1,105 @@
+name: lovit-identity
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?required}
+      POSTGRES_DB: zitadel
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?required}
+    volumes:
+      - data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-identity.sh:ro
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d zitadel"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  identity:
+    image: ghcr.io/zitadel/zitadel:v4.16.0
+    user: "0"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command: [start-from-init, --masterkeyFromEnv]
+    environment:
+      ZITADEL_MASTERKEY: ${IDENTITY_MASTERKEY:?required}
+      ZITADEL_PORT: 8080
+      ZITADEL_EXTERNALDOMAIN: auth.lovit.tech
+      ZITADEL_EXTERNALPORT: 443
+      ZITADEL_EXTERNALSECURE: "true"
+      ZITADEL_TLS_ENABLED: "false"
+      ZITADEL_DATABASE_POSTGRES_DSN: postgres://zitadel:${IDENTITY_DB_PASSWORD}@postgres:5432/zitadel?sslmode=disable
+      ZITADEL_FIRSTINSTANCE_ORG_NAME: LOVIT
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: lovit-operator
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: LOVIT bootstrap operator
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: ${OPERATOR_PAT_EXPIRY:?required}
+      ZITADEL_FIRSTINSTANCE_PATPATH: /bootstrap/admin/operator.pat
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /bootstrap/login/login.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: LOVIT login
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: ${LOGIN_PAT_EXPIRY:?required}
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: https://auth.lovit.tech/ui/v2/login/
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: https://auth.lovit.tech/ui/v2/login/login?authRequest=
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: https://auth.lovit.tech/ui/v2/login/logout?post_logout_redirect=
+      ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: "false"
+    volumes:
+      - admin-bootstrap:/bootstrap/admin
+      - login-bootstrap:/bootstrap/login
+    networks: [data, homelab]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /app/zitadel, ready]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: homelab
+      traefik.http.routers.lovit-identity.rule: Host(`auth.lovit.tech`)
+      traefik.http.routers.lovit-identity.entrypoints: web
+      traefik.http.services.lovit-identity.loadbalancer.server.port: "8080"
+      traefik.http.services.lovit-identity.loadbalancer.server.scheme: h2c
+      com.centurylinklabs.watchtower.enable: "false"
+    restart: unless-stopped
+  login:
+    image: ghcr.io/zitadel/zitadel-login:v4.16.0
+    user: "0"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      ZITADEL_API_URL: http://identity:8080
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /bootstrap/login/login.pat
+      CUSTOM_REQUEST_HEADERS: Host:auth.lovit.tech,X-Forwarded-Proto:https
+    volumes:
+      - login-bootstrap:/bootstrap/login:ro
+    networks: [data, homelab]
+    depends_on:
+      identity: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, /app/healthcheck.mjs, http://localhost:3000/ui/v2/login/healthy]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: homelab
+      traefik.http.routers.lovit-login.rule: Host(`auth.lovit.tech`) && PathPrefix(`/ui/v2/login`)
+      traefik.http.routers.lovit-login.entrypoints: web
+      traefik.http.routers.lovit-login.priority: "100"
+      traefik.http.services.lovit-login.loadbalancer.server.port: "3000"
+      com.centurylinklabs.watchtower.enable: "false"
+    restart: unless-stopped
+networks:
+  data: {internal: true}
+  homelab: {external: true, name: homelab}
+volumes:
+  data:
+  admin-bootstrap:
+  login-bootstrap:

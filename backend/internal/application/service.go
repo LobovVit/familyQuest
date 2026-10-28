@@ -11,9 +11,12 @@ import (
 
 // Repository is the persistence port consumed by application use cases.
 type Repository interface {
+	MCPRepository
 	DeviceRepository
 	LearningRepository
 	FamilyRepository
+	ProfileRepository
+	WriteAccessRepository
 	Ping(context.Context) error
 	GetParticipant(context.Context, int64) (domain.Participant, error)
 	ListParticipants(context.Context) ([]domain.Participant, error)
@@ -76,7 +79,7 @@ func (s *Service) ParseToken(c context.Context, token string) (domain.Principal,
 	if err != nil {
 		return domain.Principal{}, err
 	}
-	if p.ConfirmedUntil != 0 {
+	if p.ConfirmedUntil != 0 || p.FamilyID != s.familyID {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
 	participant, err := s.repo.GetParticipant(c, p.ParticipantID)
@@ -86,13 +89,20 @@ func (s *Service) ParseToken(c context.Context, token string) (domain.Principal,
 	if !participant.Active || participant.Role != p.Role || participant.SessionVersion != p.SessionVersion {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
+	if p.MCPGrantID != "" {
+		g, err := s.repo.MCPGrant(c, p.MCPGrantID, p.ParticipantID, p.SessionVersion, s.now())
+		if err != nil {
+			return domain.Principal{}, err
+		}
+		p.MCPReadOnly = g.ReadOnly
+	}
 	return p, nil
 }
 func (s *Service) ListParticipants(c context.Context) ([]domain.Participant, error) {
 	return s.repo.ListParticipants(c)
 }
 func (s *Service) CreateParticipant(c context.Context, actor domain.Principal, p domain.Participant, pin string) (domain.Participant, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return domain.Participant{}, err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
@@ -121,7 +131,7 @@ func (s *Service) CreateParticipant(c context.Context, actor domain.Principal, p
 	return s.repo.CreateParticipant(c, p, pin)
 }
 func (s *Service) DeleteParticipant(c context.Context, actor domain.Principal, id int64) error {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
@@ -151,7 +161,7 @@ func (s *Service) UpdateParticipantPIN(c context.Context, actor domain.Principal
 }
 func (s *Service) ListChores(c context.Context) ([]domain.Chore, error) { return s.repo.ListChores(c) }
 func (s *Service) CreateChore(c context.Context, actor domain.Principal, v domain.Chore) (domain.Chore, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return domain.Chore{}, err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
@@ -168,7 +178,7 @@ func (s *Service) CreateChore(c context.Context, actor domain.Principal, v domai
 	return s.repo.CreateChore(c, v)
 }
 func (s *Service) UpdateChore(c context.Context, actor domain.Principal, v domain.Chore) (domain.Chore, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return domain.Chore{}, err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
@@ -188,7 +198,7 @@ func (s *Service) ListAssignments(c context.Context) ([]domain.Assignment, error
 	return s.repo.ListAssignments(c)
 }
 func (s *Service) CreateAssignment(c context.Context, actor domain.Principal, a, b int64) (domain.Assignment, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return domain.Assignment{}, err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
@@ -210,7 +220,7 @@ func (s *Service) ListWeekPlan(c context.Context, d time.Time) ([]domain.WeekPla
 	return s.repo.ListWeekPlan(c, d)
 }
 func (s *Service) CompleteTask(c context.Context, p domain.Principal, id int64) (domain.Task, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, p, taskCompletion); err != nil {
 		return domain.Task{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -226,7 +236,7 @@ func (s *Service) CompleteTask(c context.Context, p domain.Principal, id int64) 
 	return s.repo.CompleteTask(c, id, p.ParticipantID)
 }
 func (s *Service) ConfirmTask(c context.Context, p domain.Principal, id int64, r int, comment string) (domain.Task, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, p, taskConfirmation); err != nil {
 		return domain.Task{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -254,7 +264,7 @@ func (s *Service) ListBehaviorRatings(c context.Context, d time.Time) ([]domain.
 	return s.repo.ListBehaviorRatings(c, d)
 }
 func (s *Service) RateBehavior(c context.Context, p domain.Principal, d time.Time, target int64, r int, comment string) (domain.BehaviorRating, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, p, interactiveMutation); err != nil {
 		return domain.BehaviorRating{}, err
 	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
@@ -281,7 +291,7 @@ func (s *Service) ListRewards(c context.Context) ([]domain.Reward, error) {
 	return s.repo.ListRewards(c)
 }
 func (s *Service) CreateReward(c context.Context, actor domain.Principal, v domain.Reward) (domain.Reward, error) {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return domain.Reward{}, err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
@@ -298,7 +308,7 @@ func (s *Service) CreateReward(c context.Context, actor domain.Principal, v doma
 	return s.repo.CreateReward(c, v)
 }
 func (s *Service) DeleteReward(c context.Context, actor domain.Principal, id int64) error {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
@@ -319,7 +329,7 @@ func (s *Service) ExportBackup(c context.Context, actor domain.Principal) (Backu
 	return s.repo.ExportBackup(c)
 }
 func (s *Service) ImportBackup(c context.Context, actor domain.Principal, b BackupData, proof string) error {
-	if err := s.writable(c); err != nil {
+	if err := s.writable(c, actor, interactiveMutation); err != nil {
 		return err
 	}
 	if s.familyID > 0 && actor.FamilyID != s.familyID {
