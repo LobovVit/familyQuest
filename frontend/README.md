@@ -18,3 +18,5 @@ npm run build
 `src/domain` содержит модели и правила; `src/application` — hooks и порты; `src/infrastructure` — HTTP, sessionStorage и backup; `src/features`/`src/pages` — интерфейс. Реализации собираются в `src/main.tsx` через `RuntimeContext`.
 
 Тесты проверяют политики, сессии, гонки асинхронной загрузки и границы зависимостей. DOM-проверки выполняются через jsdom/Testing Library. Итоговая сборка находится в `dist`. Общая [архитектура](../docs/architecture.md), [API](../docs/api.md), [эксплуатация](../docs/operations.md).
+
+Application hooks используют React как механизм состояния, но не импортируют infrastructure и не распознают HTTP-статусы. Ошибка конкурентного изменения — `application.ConflictError`; HTTP-клиент преобразует в неё ответ 409. Тестовые реализации gateway должны возвращать тот же контракт. Проверка границ рекурсивно анализирует imports, re-exports, dynamic imports и import types.

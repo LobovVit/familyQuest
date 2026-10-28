@@ -4,6 +4,9 @@ import { api, ApiError } from './apiClient'
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
 let ssoCompletion: ReturnType<FamilyQuestGateway['ssoSession']> | undefined
 export const gateway: FamilyQuestGateway = {
+ mcpGrants: () => api('/api/mcp-grants'),
+ createMCPGrant: (input, proof) => api('/api/mcp-grants', {...post(input), headers:{'X-FamilyQuest-Confirmation':proof}}),
+ revokeMCPGrant: id => api(`/api/mcp-grants/${encodeURIComponent(id)}`, {method:'DELETE'}),
  version: async () => {
   const { access, ...server } = await api<import('../domain/version').DeploymentInfo['server'] & { access?: import('../domain/version').DeploymentInfo['access'] }>('/api/version', { cache: 'no-store' })
   return { server, access, web: { version: import.meta.env.VITE_APP_VERSION || 'dev', commit: import.meta.env.VITE_APP_COMMIT || 'unknown', builtAt: import.meta.env.VITE_APP_BUILT_AT || 'unknown' } }

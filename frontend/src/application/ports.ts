@@ -8,6 +8,9 @@ import type { Assignment, BehaviorRating, Chore, ChoreDraft, LeaderboardEntry, L
 export type ParticipantDraft = { name: string; role: Participant['role']; pin: string }
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
+ mcpGrants(): Promise<import('../domain/mcp').MCPGrant[]>
+ createMCPGrant(input: import('../domain/mcp').MCPGrantInput, proof: string): Promise<{grant: import('../domain/mcp').MCPGrant; token: string}>
+ revokeMCPGrant(id: string): Promise<unknown>
  version(): Promise<import('../domain/version').DeploymentInfo>
  config(): Promise<{saas: boolean; sso?: boolean}>
  ssoSession(): Promise<Participant[]>

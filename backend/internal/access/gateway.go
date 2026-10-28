@@ -119,7 +119,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.backchannel(w, r)
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead && !httpapi.SameSiteRequest(r) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !httpapi.SameSiteRequest(r) && r.URL.Path != "/api/mcp" {
 		fail(w, 403, "Недопустимый источник запроса")
 		return
 	}
@@ -179,7 +179,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "Некорректный ответ проверки доступа")
 		return
 	}
-	if g.SSO != nil {
+	if state.Principal.MCPGrantID != "" && r.URL.Path != "/api/mcp" {
+		fail(w, 403, "MCP credential is restricted to /api/mcp")
+		return
+	}
+	if g.SSO != nil && !(state.Principal.MCPGrantID != "" && r.URL.Path == "/api/mcp") {
 		c, err := r.Cookie(g.SSO.sessionName())
 		if err != nil {
 			fail(w, 401, "Повторите единый вход")

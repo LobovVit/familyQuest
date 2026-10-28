@@ -1,0 +1,7 @@
+.mcp-connections { min-width: 0; }
+.mcp-connections p { margin: 0.65rem 0; }
+.mcp-connections code { overflow-wrap: anywhere; }
+.mcp-form { display: grid; gap: 1rem; margin: 1rem 0; }
+.mcp-form .mcp-readonly { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; }
+.mcp-form .mcp-readonly input { width: auto; margin: 0; flex: 0 0 auto; }
+.mcp-form button { justify-self: start; }

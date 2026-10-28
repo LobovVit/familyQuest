@@ -51,11 +51,14 @@ func AllowsExpiredRequest(method, route string) bool {
 	if method == http.MethodGet || method == http.MethodHead {
 		return true
 	}
+	if method == http.MethodDelete && strings.HasPrefix(route, "/api/mcp-grants/") && len(strings.Split(route, "/")) == 4 {
+		return true
+	}
 	if method != http.MethodPost {
 		return false
 	}
 	switch route {
-	case "/api/session", "/api/session/logout", "/api/session/confirm":
+	case "/api/mcp", "/api/session", "/api/session/logout", "/api/session/confirm":
 		return true
 	}
 	parts := strings.Split(route, "/")

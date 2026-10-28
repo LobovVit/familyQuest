@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRuntime } from './runtime'
+import { ConflictError } from './errors'
 import type { FamilyAction, FamilyDraft, FamilyEntry, FamilyKind } from '../domain/family'
 
 export function useFamilyLife(onProgress?: () => void) {
@@ -43,7 +44,7 @@ export function useFamilyLife(onProgress?: () => void) {
       return true
     } catch (e) {
       let message = e instanceof Error ? e.message : 'Не удалось сохранить'
-      if (e instanceof Error && 'status' in e && e.status === 409) {
+      if (e instanceof ConflictError) {
         message = 'Карточка уже изменилась. Данные обновлены; проверьте их и повторите действие.'
         try { await refresh() } catch { message += ' Не удалось загрузить свежие данные; обновите страницу.' }
       }

@@ -84,6 +84,9 @@ func (s *Service) Devices(ctx context.Context, p domain.Principal) ([]domain.Tru
 	return ds, err
 }
 func (s *Service) ConfirmParent(ctx context.Context, p domain.Principal, pin string) (string, error) {
+	if err := s.authorizeMutation(p, interactiveMutation); err != nil {
+		return "", err
+	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
 		return "", domain.ErrForbidden
 	}
@@ -103,6 +106,9 @@ func (s *Service) ConfirmParent(ctx context.Context, p domain.Principal, pin str
 	return s.tokens.IssueConfirmation(p)
 }
 func (s *Service) CheckConfirmation(ctx context.Context, p domain.Principal, proof string) error {
+	if err := s.authorizeMutation(p, interactiveMutation); err != nil {
+		return err
+	}
 	if s.familyID > 0 && p.FamilyID != s.familyID {
 		return domain.ErrForbidden
 	}

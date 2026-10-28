@@ -309,7 +309,7 @@ func (s *MathSession) Submit(index int, values map[string]int, now time.Time) er
 			stars = s.Settings.legacyStars()
 		}
 	}
-	s.Answers = append(s.Answers, MathAnswer{index, values, correct, stars, now.In(time.FixedZone("Europe/Minsk", 3*60*60)).Format("2006-01-02")})
+	s.Answers = append(s.Answers, MathAnswer{index, values, correct, stars, FamilyDate(now)})
 	return nil
 }
 func (s MathSession) View() MathView {

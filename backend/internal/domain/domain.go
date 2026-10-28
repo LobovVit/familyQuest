@@ -12,6 +12,8 @@ const (
 )
 
 type Principal struct {
+	MCPGrantID     string
+	MCPReadOnly    bool
 	FamilyID       int64
 	DeviceID       string
 	ConfirmedUntil int64

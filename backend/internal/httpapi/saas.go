@@ -158,7 +158,7 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.routes()
-	server.ServeHTTP(w, r)
+	server.ServeHTTP(w, withPrincipal(r, p))
 }
 func (s *SaaS) accountLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {

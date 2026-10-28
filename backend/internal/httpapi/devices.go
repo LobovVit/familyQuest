@@ -64,12 +64,19 @@ func sameSiteRequest(r *http.Request) bool {
 	return true
 }
 func (s *Server) requestPrincipal(w http.ResponseWriter, r *http.Request) (domain.Principal, error) {
+	if p, ok := r.Context().Value(principalKey{}).(domain.Principal); ok {
+		return p, nil
+	}
 	if r.Header.Get("Authorization") != "" {
 		token, err := parseBearer(r.Header.Get("Authorization"))
 		if err != nil {
 			return domain.Principal{}, err
 		}
-		return s.store.ParseToken(r.Context(), token)
+		p, err := s.store.ParseToken(r.Context(), token)
+		if err == nil && p.MCPGrantID != "" && r.URL.Path != "/api/mcp" && r.URL.Path != IntrospectionPath {
+			return domain.Principal{}, domain.ErrForbidden
+		}
+		return p, err
 	}
 	if !sameSiteRequest(r) {
 		return domain.Principal{}, domain.ErrUnauthorized

@@ -1,3 +1,4 @@
+import { ConflictError } from './errors'
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -50,7 +51,7 @@ describe('family data lifecycle', () => {
   it('refreshes a conflicting card and does not claim the action succeeded', async () => {
     const latest = { ...entry, version: 2 }
     const familyEntries = vi.fn().mockResolvedValueOnce([entry]).mockResolvedValue([latest])
-    const { result } = renderHook(useFamilyLife, { wrapper: wrapper({ familyEntries, familyAction: async () => { throw Object.assign(new Error('Conflict'), { status: 409 }) } }) })
+    const { result } = renderHook(useFamilyLife, { wrapper: wrapper({ familyEntries, familyAction: async () => { throw new ConflictError('Conflict') } }) })
     await waitFor(() => expect(result.current.loading).toBe(false))
     let ok = true
     await act(async () => { ok = await result.current.act(entry, { action: 'checkin' }) })

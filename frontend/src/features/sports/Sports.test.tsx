@@ -1,3 +1,4 @@
+import { ConflictError } from '../../application/errors'
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -24,7 +25,7 @@ it('child edits own parent-created entry and sends a clean draft', async () => {
 })
 it('preserves unsaved values after a conflict and offers reloading', async () => {
   const familyEntries = vi.fn().mockResolvedValueOnce([entry]).mockResolvedValue([{ ...entry, version: 2 }])
-  const runtime = { gateway: { familyEntries, editFamily: async () => { throw Object.assign(new Error('Conflict'), { status: 409 }) } } } as unknown as Runtime
+  const runtime = { gateway: { familyEntries, editFamily: async () => { throw new ConflictError('Conflict') } } } as unknown as Runtime
   render(<RuntimeContext.Provider value={runtime}><Sports current={child} participants={[parent, child]} date="2026-09-22" /></RuntimeContext.Provider>)
   fireEvent.click(await screen.findByRole('button', { name: 'Редактировать' }))
   fireEvent.change(screen.getByLabelText('Длительность, мин'), { target: { value: '45' } })

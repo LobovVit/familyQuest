@@ -38,5 +38,5 @@ func (c ReadingCompletion) Title() string {
 // Reading records self-reported practice, not verified pronunciation.
 // Чтение отмечает самостоятельное занятие, а не проверку произношения.
 func (c ReadingCompletion) Reward(owner int64, earned int, now time.Time) ActivityReward {
-	return ActivityReward{Source: "reading", SourceKey: c.ID, ParticipantID: owner, Date: now.In(time.FixedZone("Europe/Minsk", 3*60*60)).Format("2006-01-02"), Stars: min(c.Stars(), max(0, ReadingDailyStarLimit-earned)), Title: c.Title()}
+	return ActivityReward{Source: "reading", SourceKey: c.ID, ParticipantID: owner, Date: FamilyDate(now), Stars: min(c.Stars(), max(0, ReadingDailyStarLimit-earned)), Title: c.Title()}
 }

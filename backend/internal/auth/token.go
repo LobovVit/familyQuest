@@ -20,6 +20,7 @@ type Tokens struct {
 	now      func() time.Time
 }
 type claims struct {
+	MCPGrantID     string `json:"mcp,omitempty"`
 	FamilyID       int64  `json:"familyId,omitempty"`
 	DeviceID       string `json:"device,omitempty"`
 	ConfirmedUntil int64  `json:"confirmedUntil,omitempty"`
@@ -80,9 +81,13 @@ func (t *Tokens) Parse(token string) (domain.Principal, error) {
 	if err != nil || id <= 0 || domain.ValidateRole(c.Role) != nil {
 		return domain.Principal{}, domain.ErrUnauthorized
 	}
-	return domain.Principal{FamilyID: c.FamilyID, ParticipantID: id, Role: c.Role, SessionVersion: c.Version, DeviceID: c.DeviceID, ConfirmedUntil: c.ConfirmedUntil}, nil
+	return domain.Principal{FamilyID: c.FamilyID, ParticipantID: id, Role: c.Role, MCPGrantID: c.MCPGrantID, SessionVersion: c.Version, DeviceID: c.DeviceID, ConfirmedUntil: c.ConfirmedUntil}, nil
 }
 
 // ForFamily binds both issuance and parsing to one family.
 // ForFamily связывает выпуск и проверку токенов с одной семьёй.
 func (t *Tokens) ForFamily(id int64) *Tokens { v := *t; v.familyID = id; return &v }
+
+func (t *Tokens) IssueMCP(p domain.Participant, id string, expires time.Time) (string, error) {
+	return t.issue(claims{FamilyID: t.familyID, Version: p.SessionVersion, Subject: strconv.FormatInt(p.ID, 10), Role: p.Role, Expires: expires.Unix(), MCPGrantID: id})
+}
