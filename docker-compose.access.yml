@@ -26,6 +26,8 @@ services:
       DATABASE_URL: ${ACCESS_DATABASE_URL:?ACCESS_DATABASE_URL is required}
       CORE_ORIGIN: http://familyquest-core:8081
       SSO_SESSION_FILE: /app/sessions/registry.json
+      LOGIN_PORTAL_URL: ${LOGIN_PORTAL_URL:-}
+      LOVIT_READ_TOKEN: ${LOVIT_READ_TOKEN:-}
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}

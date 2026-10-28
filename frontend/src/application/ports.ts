@@ -12,7 +12,7 @@ export interface FamilyQuestGateway {
  createMCPGrant(input: import('../domain/mcp').MCPGrantInput, proof: string): Promise<{grant: import('../domain/mcp').MCPGrant; token: string}>
  revokeMCPGrant(id: string): Promise<unknown>
  version(): Promise<import('../domain/version').DeploymentInfo>
- config(): Promise<{saas: boolean; sso?: boolean}>
+ config(): Promise<{saas: boolean; sso?: boolean; loginUrl?: string}>
  ssoSession(): Promise<Participant[]>
  restoreAccount(): Promise<Participant[] | null>
  selectAccountProfile(participantId:number,pin:string): Promise<LoginResponse>

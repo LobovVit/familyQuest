@@ -136,6 +136,68 @@ func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	portalKey := strings.Repeat("portal-reader-", 4)
+	gateway.Portal, err = access.NewPortalReader(ap, "https://portal-issuer.example", portalKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, sub := range []string{"owner-a", "owner-b"} {
+		if err = p.BindIdentity(ctx, "https://portal-issuer.example", sub, ids[i], "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	portalCall := func(subject, token, extra string) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"issuer":"https://portal-issuer.example","subject":%q%s}`, subject, extra)
+		r := httptest.NewRequest("POST", "https://family.example"+access.PortalAccountPath, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		gateway.ServeHTTP(w, r)
+		return w
+	}
+	portalRead := func(subject string, connected, paid, allowed bool, status string) {
+		t.Helper()
+		w := portalCall(subject, portalKey, "")
+		var result struct {
+			Connected    bool                       `json:"connected"`
+			Subscription *access.PortalSubscription `json:"subscription"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || result.Connected != connected {
+			t.Fatal("portal summary", w.Code, w.Body.String())
+		}
+		if connected && (result.Subscription == nil || result.Subscription.Paid != paid || result.Subscription.Access != allowed || result.Subscription.Status != status) {
+			t.Fatal("incorrect portal status", w.Body.String())
+		}
+		if !connected && result.Subscription != nil {
+			t.Fatal("unbound user received a family")
+		}
+		for _, forbidden := range []string{"ownerEmail", "participantId", "token", "reference", "amountMinor"} {
+			if strings.Contains(w.Body.String(), forbidden) {
+				t.Fatal("portal leaked private fields")
+			}
+		}
+		if len(w.Result().Cookies()) != 0 {
+			t.Fatal("summary issued a user session")
+		}
+	}
+	portalRead("owner-a", true, true, true, "active")
+	portalRead("owner-b", true, false, false, "active")
+	portalRead("unknown", false, false, false, "")
+	for _, k := range []string{"", key, "wrong"} {
+		if w := portalCall("owner-a", k, ""); w.Code != 401 {
+			t.Fatal("summary key isolation", w.Code)
+		}
+	}
+	if w := portalCall("owner-a", portalKey, fmt.Sprintf(`,"familyId":%d`, ids[1])); w.Code != 400 {
+		t.Fatal("browser chose a family", w.Code)
+	}
+	r := httptest.NewRequest("POST", origin.URL+httpapi.SubscriptionSummaryPath, strings.NewReader(fmt.Sprintf(`{"familyId":%d}`, ids[0])))
+	r.Header.Set(httpapi.AccessKeyHeader, portalKey)
+	w := httptest.NewRecorder()
+	origin.Config.Handler.ServeHTTP(w, r)
+	if w.Code != 401 {
+		t.Fatal("portal key accepted by Core", w.Code)
+	}
 	call := func(method, path, token, body string, cookies []*http.Cookie) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "https://family.example"+path, strings.NewReader(body))
 		r.Header.Set("X-FamilyQuest", "1")
@@ -183,6 +245,7 @@ func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
 	if e = p.RefundPayment(ctx, payment.Reference, "test"); e != nil {
 		t.Fatal(e)
 	}
+	portalRead("owner-a", true, false, false, "active")
 	if w := call("POST", "/api/participants", session.Token, `{"name":"Child","role":"child","pin":"391827"}`, nil); w.Code != 403 {
 		t.Fatal("unpaid write", w.Code)
 	}
@@ -210,6 +273,7 @@ func TestAccessServiceSeparatedPrivilegesAndSessions(t *testing.T) {
 	if e = p.Suspend(ctx, ids[1], true, "test"); e != nil {
 		t.Fatal(e)
 	}
+	portalRead("owner-b", true, false, false, "suspended")
 	if w := call("GET", "/api/participants", sessionB.Token, "", nil); w.Code != 401 {
 		t.Fatal("suspended family", w.Code)
 	}

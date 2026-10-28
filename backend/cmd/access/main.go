@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -40,6 +41,13 @@ func main() {
 		if err != nil {
 			log.Fatal("configure OIDC: ", err)
 		}
+		if raw := os.Getenv("LOGIN_PORTAL_URL"); raw != "" {
+			u, err := url.Parse(raw)
+			if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+				log.Fatal("LOGIN_PORTAL_URL must be an HTTPS URL")
+			}
+			gateway.LoginPortalURL = raw
+		}
 		gateway.SSO = access.NewSSO(login, catalog)
 		if path := os.Getenv("SSO_SESSION_FILE"); path != "" {
 			sessions, err := identity.NewPersistentSessions(path)
@@ -47,6 +55,15 @@ func main() {
 				log.Fatal("SSO session storage: ", err)
 			}
 			gateway.SSO.Sessions = sessions
+		}
+	}
+	if key := os.Getenv("LOVIT_READ_TOKEN"); key != "" {
+		if gateway.SSO == nil {
+			log.Fatal("LOVIT_READ_TOKEN requires OIDC")
+		}
+		gateway.Portal, e = access.NewPortalReader(catalog, os.Getenv("OIDC_ISSUER"), key)
+		if e != nil {
+			log.Fatal(e)
 		}
 	}
 	info := httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)}

@@ -26,15 +26,17 @@ type Catalog interface {
 	Paid(context.Context, int64) (bool, error)
 }
 type Gateway struct {
-	SSO          *SSO
-	Version      *httpapi.VersionInfo
-	catalog      Catalog
-	origin       *url.URL
-	secret, cors string
-	client       *http.Client
-	proxy        *httputil.ReverseProxy
-	mu           sync.Mutex
-	attempts     map[string]attempt
+	Portal         *PortalReader
+	SSO            *SSO
+	LoginPortalURL string
+	Version        *httpapi.VersionInfo
+	catalog        Catalog
+	origin         *url.URL
+	secret, cors   string
+	client         *http.Client
+	proxy          *httputil.ReverseProxy
+	mu             sync.Mutex
+	attempts       map[string]attempt
 }
 type attempt struct {
 	count int
@@ -119,6 +121,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.backchannel(w, r)
 		return
 	}
+	if r.URL.Path == PortalAccountPath {
+		g.portalAccount(w, r)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead && !httpapi.SameSiteRequest(r) && r.URL.Path != "/api/mcp" {
 		fail(w, 403, "Недопустимый источник запроса")
 		return
@@ -136,7 +142,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/config" {
-		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil})
+		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil, "loginUrl": g.LoginPortalURL})
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/version" && g.Version != nil {

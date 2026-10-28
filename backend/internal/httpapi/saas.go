@@ -75,6 +75,25 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.completeAccountLogin(w, r, in.FamilyID, in.ParticipantID)
 		return
 	}
+	if s.private && r.URL.Path == SubscriptionSummaryPath {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		var in struct {
+			FamilyID int64 `json:"familyId"`
+		}
+		if decodeJSON(r, &in) != nil || in.FamilyID <= 0 {
+			respond(w, nil, domain.ErrInvalidInput)
+			return
+		}
+		// No profile session or owner token is issued by this private projection.
+		sub, err := s.platform.Subscription(r.Context(), in.FamilyID)
+		sub.OwnerEmail = ""
+		respond(w, sub, err)
+		return
+	}
 	if r.URL.Path == "/api/account/login" {
 		if s.private {
 			http.NotFound(w, r)

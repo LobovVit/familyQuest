@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// Sessions is a single-instance, fail-closed session registry. Restart requires SSO again.
-// Sessions хранит сессии одного экземпляра; перезапуск требует повторного SSO.
+// Sessions is a single-instance, fail-closed registry with optional private-volume persistence.
+// Sessions хранит сессии одного экземпляра с возможностью сохранения в закрытом томе.
 type Sessions struct {
 	file    string
 	mu      sync.Mutex
@@ -46,7 +46,7 @@ func (s *Sessions) AddFor(sub Subject, scope string, ttl time.Duration) (string,
 	defer s.mu.Unlock()
 	now := time.Now()
 	s.sweep(now)
-	if sub.ID == "" || sub.SessionID == "" || len(s.active) >= 10000 || len(s.revoked) >= 10000 {
+	if ttl <= 0 || ttl > 60*24*time.Hour || sub.ID == "" || sub.SessionID == "" || len(s.active) >= 10000 || len(s.revoked) >= 10000 {
 		return "", errors.New("SSO session unavailable")
 	}
 	if _, ok := s.revoked["sid:"+sub.SessionID]; ok {
@@ -95,7 +95,7 @@ func (s *Sessions) Revoke(sub Subject) {
 	if sub.SessionID == "" {
 		key = "sub:" + sub.ID
 	}
-	s.revoked[key] = now.Add(30 * 24 * time.Hour)
+	s.revoked[key] = now.Add(60 * 24 * time.Hour)
 	for k, v := range s.active {
 		if v.Subject.Issuer == sub.Issuer && ((sub.SessionID != "" && v.Subject.SessionID == sub.SessionID) || (sub.SessionID == "" && v.Subject.ID == sub.ID)) {
 			delete(s.active, k)
