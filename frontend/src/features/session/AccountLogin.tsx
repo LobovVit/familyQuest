@@ -28,7 +28,7 @@ export function AccountLogin({ sso = false, loginUrl = '' }: { sso?: boolean; lo
   return () => { active = false }
  }, [sso, gateway, login, loginUrl])
  if (sso) return <main className="account-entry"><section className="panel">
-  <h1>Семейные дела 🌳</h1>
+  <h1>Семейные дела 🌳</h1><p>Задачи, занятия и награды для детей.</p>
   <p>Один аккаунт для всех подключённых сервисов. Подписка на каждый сервис оформляется отдельно.</p>
   {error && <p role="alert">{error}</p>}
   {!loginUrl && !profiles && !busy && <label className="remember-choice"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Запомнить это устройство на 30 дней</label>}
@@ -42,7 +42,7 @@ export function AccountLogin({ sso = false, loginUrl = '' }: { sso?: boolean; lo
   <p>После входа выберите семейный профиль. Для переключения профиля используется его PIN.</p>
  </section></main>
  return <main className="account-entry"><section className="panel">
-  <h1>Семейные дела 🌳</h1><p>Войдите в пространство вашей семьи</p>
+  <h1>Семейные дела 🌳</h1><p>Задачи, занятия и награды для детей.</p><p>Войдите в пространство вашей семьи</p>
   <form className="stack-form" onSubmit={async e => {
    e.preventDefault()
    if (busy) return
