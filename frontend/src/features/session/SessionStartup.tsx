@@ -7,6 +7,6 @@ export function SessionStartup({initialize,refresh,children}:{initialize:()=>Pro
   const check=()=>{void refresh().catch(()=>{/* Existing view handles network failures on its next request. */})}
   window.addEventListener('focus',check);return()=>window.removeEventListener('focus',check)
  },[ready,refresh])
- if(!ready)return <main className="panel"><h1>FamilyQuest</h1>{error?<><p role="alert">{error}</p><button onClick={()=>window.location.reload()}>Повторить</button></>:<p role="status">Проверяем вход…</p>}</main>
+ if(!ready)return <main className="panel"><h1>Семейные дела</h1>{error?<><p role="alert">{error}</p><button onClick={()=>window.location.reload()}>Повторить</button></>:<p role="status">Проверяем вход…</p>}</main>
  return children
 }

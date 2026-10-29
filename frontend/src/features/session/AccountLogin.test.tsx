@@ -78,7 +78,7 @@ it.each([false,true])('does not loop on a failed restore or callback (callback=%
  render(<RuntimeContext.Provider value={runtime}><AccountLogin sso loginUrl="https://lovit.tech/login?product=familyquest" /></RuntimeContext.Provider>)
  expect((await screen.findByRole('alert')).textContent).toBe('Вход временно недоступен')
  expect(open).not.toHaveBeenCalled()
- expect(screen.getByRole('link',{name:'Продолжить в LOVIT'}).getAttribute('href')).toBe('https://lovit.tech/login?product=familyquest')
+ expect(screen.getByRole('link',{name:'Продолжить в Делодень'}).getAttribute('href')).toBe('https://lovit.tech/login?product=familyquest')
  open.mockRestore()
  window.history.replaceState(null,'','/')
 })
