@@ -28,7 +28,7 @@ export function AccountLogin({ sso = false, loginUrl = '' }: { sso?: boolean; lo
   return () => { active = false }
  }, [sso, gateway, login, loginUrl])
  if (sso) return <main className="account-entry"><section className="panel">
-  <h1>FamilyQuest 🌳</h1>
+  <h1>Семейные дела 🌳</h1>
   <p>Один аккаунт для всех подключённых сервисов. Подписка на каждый сервис оформляется отдельно.</p>
   {error && <p role="alert">{error}</p>}
   {!loginUrl && !profiles && !busy && <label className="remember-choice"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Запомнить это устройство на 30 дней</label>}
@@ -38,11 +38,11 @@ export function AccountLogin({ sso = false, loginUrl = '' }: { sso?: boolean; lo
    <button disabled={busy||!selected||pin.length!==6}>Открыть профиль</button>
    <button type="button" disabled={busy} onClick={()=>void gateway.logout()}>Выйти из всех сервисов</button>
   </form>}
-  {busy ? <p role="status">Завершаем вход…</p> : !profiles && <a className="button" href={loginUrl || (remember ? "/api/account/authorize?remember=30" : "/api/account/authorize")}>{loginUrl ? "Продолжить в LOVIT" : "Войти с единым аккаунтом"}</a>}
+  {busy ? <p role="status">Завершаем вход…</p> : !profiles && <a className="button" href={loginUrl || (remember ? "/api/account/authorize?remember=30" : "/api/account/authorize")}>{loginUrl ? "Продолжить в Делодень" : "Войти с единым аккаунтом"}</a>}
   <p>После входа выберите семейный профиль. Для переключения профиля используется его PIN.</p>
  </section></main>
  return <main className="account-entry"><section className="panel">
-  <h1>FamilyQuest 🌳</h1><p>Войдите в пространство вашей семьи</p>
+  <h1>Семейные дела 🌳</h1><p>Войдите в пространство вашей семьи</p>
   <form className="stack-form" onSubmit={async e => {
    e.preventDefault()
    if (busy) return
