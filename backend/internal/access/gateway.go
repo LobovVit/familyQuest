@@ -26,6 +26,7 @@ type Catalog interface {
 	Paid(context.Context, int64) (bool, error)
 }
 type Gateway struct {
+	Registrar      FamilyRegistrar
 	Portal         *PortalReader
 	SSO            *SSO
 	LoginPortalURL string
@@ -129,7 +130,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "Недопустимый источник запроса")
 		return
 	}
-	if g.SSO != nil && (r.URL.Path == "/api/account/authorize" || r.URL.Path == "/api/account/callback" || r.URL.Path == "/api/account/exchange" || r.URL.Path == "/api/account/restore" || r.URL.Path == "/api/account/profile") {
+	if g.SSO != nil && (r.URL.Path == "/api/account/authorize" || r.URL.Path == "/api/account/callback" || r.URL.Path == "/api/account/exchange" || r.URL.Path == "/api/account/restore" || r.URL.Path == "/api/account/profile" || r.URL.Path == "/api/account/family") {
 		g.sso(w, r)
 		return
 	}
@@ -142,7 +143,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/config" {
-		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil, "loginUrl": g.LoginPortalURL})
+		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil, "loginUrl": g.LoginPortalURL, "selfRegistration": g.Registrar != nil})
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/version" && g.Version != nil {

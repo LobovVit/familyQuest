@@ -49,6 +49,9 @@ func SameSiteRequest(r *http.Request) bool { return sameSiteRequest(r) }
 // AllowsExpiredRequest is shared by the proxy and origin: history remains readable.
 // AllowsExpiredRequest общая для прокси и приложения: история остаётся доступной.
 func AllowsExpiredRequest(method, route string) bool {
+	if method == http.MethodPut && route == "/api/family/name" {
+		return true // Account metadata remains editable without a paid subscription.
+	}
 	if method == http.MethodGet || method == http.MethodHead {
 		return true
 	}

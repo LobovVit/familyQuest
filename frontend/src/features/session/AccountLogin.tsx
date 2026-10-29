@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { CreateFamily } from './CreateFamily'
 import { loginNavigation } from './loginNavigation'
 import { useRuntime } from '../../application/runtime'
 import { useSession } from '../../application/useSession'
@@ -6,10 +7,12 @@ import '../family/family.css'
 import type { Participant } from '../../domain/models'
 
 export function AccountLogin({ sso = false, loginUrl = '' }: { sso?: boolean; loginUrl?: string }) {
- const { gateway } = useRuntime()
+ const { gateway, session } = useRuntime()
  const { login } = useSession()
  const [busy, setBusy] = useState(false)
  const [error, setError] = useState('')
+ const [onboarding, setOnboarding] = useState(false)
+ const [created, setCreated] = useState(false)
  const [visible, setVisible] = useState(false)
  const [remember,setRemember]=useState(false),[profiles,setProfiles]=useState<Participant[]|null>(null),[selected,setSelected]=useState(''),[pin,setPin]=useState('')
  useEffect(() => {
@@ -19,27 +22,31 @@ export function AccountLogin({ sso = false, loginUrl = '' }: { sso?: boolean; lo
   setBusy(true)
   void (complete ? gateway.ssoSession() : gateway.restoreAccount()).then(result => {
    if (!active) return
+   if (complete) session.clearSession()
    const url = new URL(window.location.href); url.searchParams.delete('sso')
    window.history.replaceState(null, '', url.pathname + url.search + url.hash)
-   setProfiles(result)
+   setProfiles(Array.isArray(result) ? result : null)
+   setOnboarding(result !== null && !Array.isArray(result) && result.onboarding)
    if (!complete && result === null && loginUrl) loginNavigation.open(loginUrl)
   }).catch(e => { if (active) setError(e instanceof Error ? e.message : 'Не удалось завершить единый вход') })
     .finally(() => { if (active) setBusy(false) })
   return () => { active = false }
- }, [sso, gateway, login, loginUrl])
+ }, [sso, gateway, session, login, loginUrl])
  if (sso) return <main className="account-entry"><section className="panel">
   <h1>Семейные дела 🌳</h1><p>Задачи, занятия и награды для детей.</p>
   <p>Один аккаунт для всех подключённых сервисов. Подписка на каждый сервис оформляется отдельно.</p>
   {error && <p role="alert">{error}</p>}
-  {!loginUrl && !profiles && !busy && <label className="remember-choice"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Запомнить это устройство на 30 дней</label>}
+  {!loginUrl && !profiles && !onboarding && !busy && <label className="remember-choice"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Запомнить это устройство на 30 дней</label>}
+  {onboarding && <CreateFamily onCreated={result => { setProfiles(result); setOnboarding(false); setCreated(true); setError('') }} />}
+  {created && <p role="status">Семья создана. Выберите свой профиль и введите PIN.</p>}
   {profiles && <form className="stack-form" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{login(await gateway.selectAccountProfile(Number(selected),pin))}catch(e){setError(e instanceof Error?e.message:'Не удалось войти')}finally{setPin('');setBusy(false)}}}>
    <label>Семейный профиль<select value={selected} onChange={e=>{setSelected(e.target.value);setPin('')}} required><option value="">Выберите профиль</option>{profiles.filter(p=>p.active).map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
    <label>PIN профиля<input type="password" inputMode="numeric" autoComplete="off" value={pin} maxLength={6} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,6))}/></label>
    <button disabled={busy||!selected||pin.length!==6}>Открыть профиль</button>
    <button type="button" disabled={busy} onClick={()=>void gateway.logout()}>Выйти из всех сервисов</button>
   </form>}
-  {busy ? <p role="status">Завершаем вход…</p> : !profiles && <a className="button" href={loginUrl || (remember ? "/api/account/authorize?remember=30" : "/api/account/authorize")}>{loginUrl ? "Продолжить в Делодень" : "Войти с единым аккаунтом"}</a>}
-  <p>После входа выберите семейный профиль. Для переключения профиля используется его PIN.</p>
+  {busy ? <p role="status">Завершаем вход…</p> : !profiles && !onboarding && <a className="button" href={loginUrl || (remember ? "/api/account/authorize?remember=30" : "/api/account/authorize")}>{loginUrl ? "Продолжить в Делодень" : "Войти с единым аккаунтом"}</a>}
+  {!onboarding && <p>После входа выберите семейный профиль. Для переключения профиля используется его PIN.</p>}
  </section></main>
  return <main className="account-entry"><section className="panel">
   <h1>Семейные дела 🌳</h1><p>Задачи, занятия и награды для детей.</p><p>Войдите в пространство вашей семьи</p>

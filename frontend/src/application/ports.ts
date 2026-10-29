@@ -1,3 +1,4 @@
+import type { AccountEntry, FamilyRegistration } from '../domain/registration'
 import type { LearningProfile, LearningPolicy, FamilySubscription } from '../domain/subscription'
 import type { ReadingMode } from '../domain/reading'
 import type { LoginOptions, TrustedDevice } from '../domain/devices'
@@ -13,10 +14,12 @@ export interface FamilyQuestGateway {
  revokeMCPGrant(id: string): Promise<unknown>
  version(): Promise<import('../domain/version').DeploymentInfo>
  config(): Promise<{saas: boolean; sso?: boolean; loginUrl?: string}>
- ssoSession(): Promise<Participant[]>
- restoreAccount(): Promise<Participant[] | null>
+ ssoSession(): Promise<AccountEntry>
+ restoreAccount(): Promise<AccountEntry | null>
+ registerFamily(input: FamilyRegistration): Promise<Participant[]>
  selectAccountProfile(participantId:number,pin:string): Promise<LoginResponse>
  accountLogin(email: string, password: string): Promise<LoginResponse>
+ renameFamily(name: string): Promise<{name: string}>
  subscription(): Promise<FamilySubscription>
  learningPolicy(): Promise<LearningPolicy>
  learningProfile(id: number): Promise<LearningProfile>

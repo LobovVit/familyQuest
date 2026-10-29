@@ -20,6 +20,7 @@ import (
 
 type IdentityCatalog interface {
 	Identity(context.Context, string, string) (int64, int64, error)
+	PortalFamily(context.Context, string, string) (int64, error)
 }
 type handoff struct {
 	subject identity.Subject
@@ -109,29 +110,15 @@ func (g *Gateway) sso(w http.ResponseWriter, r *http.Request) {
 				fail(w, 503, "Проверка аккаунта временно недоступна")
 				return
 			}
+			if g.Registrar != nil {
+				g.beginOnboarding(w, r, h.subject)
+				return
+			}
 			fail(w, 403, "Аккаунт не подключён к семье или доступ приостановлен. Обратитесь к оператору.")
 			return
 		}
-		b, _ := json.Marshal(httpapi.AccountSessionInput{FamilyID: family, ParticipantID: owner})
-		_, status, err := g.rpc(r, http.MethodPost, httpapi.AccountSessionPath, b)
-		if err != nil || status != 200 {
-			fail(w, 503, "Не удалось открыть семейный профиль. Повторите вход.")
-			return
-		}
-		sessionID, err := s.Sessions.AddFor(h.subject, strconv.FormatInt(family, 10), h.subject.SessionTTL())
-		if err != nil {
-			fail(w, 401, "Повторите единый вход")
-			return
-		}
-		if old, e := r.Cookie(s.sessionName()); e == nil {
-			s.Sessions.Delete(old.Value)
-		}
-		s.sessionCookie(w, sessionID, h.subject.CookieMaxAge())
-		// Clear the old device after Core has revoked it, as in password login.
-		// Удаляем прежний cookie устройства после его отзыва Core, как при входе по паролю.
-		http.SetCookie(w, &http.Cookie{Name: "familyquest_device", Path: "/api", HttpOnly: true, Secure: s.Login.Secure(), SameSite: http.SameSiteStrictMode, MaxAge: -1})
-		g.accountProfiles(w, r, h.subject, family)
-	case "/api/account/restore", "/api/account/profile":
+		g.enterFamily(w, r, h.subject, family, owner)
+	case "/api/account/restore", "/api/account/profile", "/api/account/family":
 		if r.Method != http.MethodPost {
 			w.WriteHeader(405)
 			return
@@ -146,12 +133,16 @@ func (g *Gateway) sso(w http.ResponseWriter, r *http.Request) {
 			fail(w, 401, "Войдите с единым аккаунтом")
 			return
 		}
+		if session.Scope == onboardingScope {
+			g.onboarding(w, r, session)
+			return
+		}
 		family, _, e := s.Catalog.Identity(r.Context(), session.Subject.Issuer, session.Subject.ID)
 		if e != nil || strconv.FormatInt(family, 10) != session.Scope {
 			fail(w, 401, "Доступ к семье завершён")
 			return
 		}
-		if r.URL.Path == "/api/account/restore" {
+		if r.URL.Path == "/api/account/restore" || r.URL.Path == "/api/account/family" {
 			g.accountProfiles(w, r, session.Subject, family)
 			return
 		}
@@ -242,4 +233,28 @@ func (g *Gateway) accountCore(w http.ResponseWriter, r *http.Request, sub identi
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	io.Copy(w, strings.NewReader(string(result)))
+}
+
+func (g *Gateway) enterFamily(w http.ResponseWriter, r *http.Request, sub identity.Subject, family, owner int64) {
+	s := g.SSO
+	var err error
+	b, _ := json.Marshal(httpapi.AccountSessionInput{FamilyID: family, ParticipantID: owner})
+	_, status, err := g.rpc(r, http.MethodPost, httpapi.AccountSessionPath, b)
+	if err != nil || status != 200 {
+		fail(w, 503, "Не удалось открыть семейный профиль. Повторите вход.")
+		return
+	}
+	sessionID, err := s.Sessions.AddFor(sub, strconv.FormatInt(family, 10), sub.SessionTTL())
+	if err != nil {
+		fail(w, 401, "Повторите единый вход")
+		return
+	}
+	if old, e := r.Cookie(s.sessionName()); e == nil {
+		s.Sessions.Delete(old.Value)
+	}
+	s.sessionCookie(w, sessionID, sub.CookieMaxAge())
+	// Clear the old device after Core has revoked it, as in password login.
+	// Удаляем прежний cookie устройства после его отзыва Core, как при входе по паролю.
+	http.SetCookie(w, &http.Cookie{Name: "familyquest_device", Path: "/api", HttpOnly: true, Secure: s.Login.Secure(), SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	g.accountProfiles(w, r, sub, family)
 }

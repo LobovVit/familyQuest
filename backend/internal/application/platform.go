@@ -10,4 +10,5 @@ import (
 type PlatformGateway interface {
 	Account(context.Context, string, string) (int64, int64, error)
 	Subscription(context.Context, int64) (domain.FamilySubscription, error)
+	RenameFamily(context.Context, int64, string) error
 }

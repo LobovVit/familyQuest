@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/lobov/familyquest/backend/internal/application"
 	"github.com/lobov/familyquest/backend/internal/domain"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -157,6 +159,26 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.private && r.URL.Path == IntrospectionPath && r.Method == http.MethodGet {
 		respond(w, AccessState{Principal: p, Subscription: subscription}, nil)
+		return
+	}
+	if r.URL.Path == "/api/family/name" && r.Method == http.MethodPut {
+		if !p.IsParent() || p.MCPGrantID != "" || !sameSiteRequest(r) {
+			respond(w, nil, domain.ErrForbidden)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		var input struct {
+			Name string `json:"name"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
+			respond(w, nil, domain.ErrInvalidInput)
+			return
+		}
+		input.Name = strings.TrimSpace(input.Name)
+		err := s.platform.RenameFamily(r.Context(), family, input.Name)
+		respond(w, map[string]string{"name": input.Name}, err)
 		return
 	}
 	if r.URL.Path == "/api/subscription" && r.Method == "GET" {

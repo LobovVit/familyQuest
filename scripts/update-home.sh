@@ -39,6 +39,11 @@ if [[ -f .access-proxy-enabled ]]; then
   compose+=(-f docker-compose.access.yml)
   services+=(access)
 fi
+if [[ -f .self-registration-enabled ]]; then
+  [[ -f .access-proxy-enabled ]] || { echo 'Self-registration requires Access and OIDC' >&2; exit 1; }
+  compose+=(-f docker-compose.onboarding.yml)
+  services+=(provisioner)
+fi
 echo "==> Building and restarting Docker Compose project: $PROJECT"
 "${compose[@]}" config --quiet
 "${compose[@]}" up --build -d --remove-orphans

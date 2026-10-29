@@ -17,7 +17,8 @@ func allowedDependency(layer, path string) bool {
 		"domain": {"domain"}, "application": {"application", "domain"},
 		"httpapi": {"httpapi", "application", "domain"}, "store": {"store", "application", "domain"},
 		"auth": {"auth", "domain"}, "config": {"config"}, "buildinfo": {"buildinfo"},
-		"identity": {"identity"}, "testoidc": {"testoidc"},
+		"provisioning": {"provisioning", "domain"},
+		"identity":     {"identity"}, "testoidc": {"testoidc"},
 		// Access shares HTTP wire types and CSRF policy with httpapi. This is an
 		// explicit adapter exception, not permission to import persistence/auth.
 		"access": {"access", "domain", "httpapi", "identity"},

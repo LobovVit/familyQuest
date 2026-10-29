@@ -17,6 +17,7 @@ import (
 	"github.com/lobov/familyquest/backend/internal/buildinfo"
 	"github.com/lobov/familyquest/backend/internal/httpapi"
 	"github.com/lobov/familyquest/backend/internal/identity"
+	"github.com/lobov/familyquest/backend/internal/provisioning"
 	"github.com/lobov/familyquest/backend/internal/store"
 )
 
@@ -55,6 +56,18 @@ func main() {
 				log.Fatal("SSO session storage: ", err)
 			}
 			gateway.SSO.Sessions = sessions
+		}
+	}
+	if os.Getenv("PROVISIONER_ORIGIN") != "" || os.Getenv("PROVISIONER_SHARED_SECRET") != "" {
+		if gateway.SSO == nil {
+			log.Fatal("self registration requires OIDC")
+		}
+		if os.Getenv("PROVISIONER_SHARED_SECRET") == os.Getenv("ACCESS_SHARED_SECRET") {
+			log.Fatal("provisioner requires a separate service secret")
+		}
+		gateway.Registrar, e = provisioning.NewClient(os.Getenv("PROVISIONER_ORIGIN"), os.Getenv("PROVISIONER_SHARED_SECRET"))
+		if e != nil {
+			log.Fatal(e)
 		}
 	}
 	if key := os.Getenv("LOVIT_READ_TOKEN"); key != "" {

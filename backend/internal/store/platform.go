@@ -31,6 +31,16 @@ func (p *Platform) Migrate(ctx context.Context) error {
  create table if not exists fq_platform.audit(id bigserial primary key,family_id bigint not null,action text not null,operator text not null,created_at timestamptz not null default now());
  alter table fq_platform.payments add column if not exists refunded_at timestamptz;
  create table if not exists fq_platform.identities(issuer text not null,subject text not null,family_id bigint not null references fq_platform.families(id) on delete cascade,primary key(issuer,subject));
+ -- Preserve existing password accounts while allowing OIDC-only family owners.
+ do $$ begin
+ if exists(select 1 from pg_constraint where conrelid='fq_platform.accounts'::regclass and conname='accounts_pkey' and pg_get_constraintdef(oid)='PRIMARY KEY (email)') then
+ alter table fq_platform.accounts drop constraint accounts_pkey;
+ alter table fq_platform.accounts add primary key(family_id);
+ end if;
+ end $$;
+ create unique index if not exists accounts_email_unique on fq_platform.accounts(email);
+ alter table fq_platform.accounts alter column email drop not null;
+ alter table fq_platform.accounts alter column password_hash drop not null;
  revoke all on schema fq_platform from public;revoke all on all tables in schema fq_platform from public;`)
 	return e
 }
@@ -81,13 +91,31 @@ func emailKey(v string) (string, error) {
 	return v, nil
 }
 func (p *Platform) Provision(ctx context.Context, name, email, password, parent, pin, operator string, legacy bool) (int64, error) {
-	email, e := emailKey(email)
-	if e != nil || len(password) < 12 || len(password) > 72 || strings.TrimSpace(name) == "" || strings.TrimSpace(parent) == "" || domain.ValidatePIN(pin) != nil || operator == "" {
+	return p.provision(ctx, name, email, password, parent, pin, operator, legacy, nil)
+}
+
+func (p *Platform) RegisterFamily(ctx context.Context, issuer, subject string, input domain.FamilyRegistration, coreRole string) (int64, error) {
+	input, err := input.Normalize()
+	if err != nil || !validIdentity(issuer, subject) || coreRole == "" {
 		return 0, domain.ErrInvalidInput
 	}
-	hash, e := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if e != nil {
-		return 0, e
+	return p.provision(ctx, input.Name, "", "", input.ParentName, input.PIN, "self-registration", false, &registrationIdentity{issuer, subject, coreRole})
+}
+
+type registrationIdentity struct{ issuer, subject, coreRole string }
+
+func (p *Platform) provision(ctx context.Context, name, email, password, parent, pin, operator string, legacy bool, registration *registrationIdentity) (int64, error) {
+	var hash []byte
+	var e error
+	if registration == nil {
+		email, e = emailKey(email)
+		if e != nil || len(password) < 12 || len(password) > 72 || strings.TrimSpace(name) == "" || strings.TrimSpace(parent) == "" || domain.ValidatePIN(pin) != nil || operator == "" {
+			return 0, domain.ErrInvalidInput
+		}
+		hash, e = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if e != nil {
+			return 0, e
+		}
 	}
 	ph, e := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
 	if e != nil {
@@ -103,6 +131,27 @@ func (p *Platform) Provision(ctx context.Context, name, email, password, parent,
 	// Сериализуем DDL каталога и проверяем адрес до создания роли.
 	if _, e = tx.Exec(ctx, `select pg_advisory_xact_lock(88340219)`); e != nil {
 		return 0, e
+	}
+	if registration != nil {
+		var status string
+		e = tx.QueryRow(ctx, `select f.id,f.status from fq_platform.identities i join fq_platform.families f on f.id=i.family_id where i.issuer=$1 and i.subject=$2`, registration.issuer, registration.subject).Scan(&id, &status)
+		if e == nil {
+			if status != "active" {
+				return 0, domain.ErrForbidden
+			}
+			return id, nil // Retry never changes the name, PIN or entitlement.
+		}
+		if !errors.Is(e, pgx.ErrNoRows) {
+			return 0, e
+		}
+		var safe bool
+		e = tx.QueryRow(ctx, `select not rolsuper and not rolcreaterole and not rolcreatedb and not rolbypassrls and not rolinherit and has_table_privilege(rolname,'fq_platform.families','SELECT') and not has_table_privilege(rolname,'fq_platform.accounts','SELECT,INSERT,UPDATE,DELETE') and not has_table_privilege(rolname,'fq_platform.payments','SELECT,INSERT,UPDATE,DELETE') from pg_roles where rolname=$1`, registration.coreRole).Scan(&safe)
+		if e != nil {
+			return 0, e
+		}
+		if !safe {
+			return 0, fmt.Errorf("registration requires a configured Core runtime role")
+		}
 	}
 	var exists bool
 	if e = tx.QueryRow(ctx, `select exists(select 1 from fq_platform.accounts where email=$1)`, email).Scan(&exists); e != nil {
@@ -177,13 +226,30 @@ func (p *Platform) Provision(ctx context.Context, name, email, password, parent,
 	if e = grantFamily(ctx, tx, schema, role); e != nil {
 		return 0, e
 	}
-	if _, e = tx.Exec(ctx, `insert into fq_platform.accounts(email,password_hash,family_id,participant_id) values($1,$2,$3,$4)`, email, string(hash), id, owner); e != nil {
+	if _, e = tx.Exec(ctx, `insert into fq_platform.accounts(email,password_hash,family_id,participant_id) values($1,$2,$3,$4)`, nullableAccount(email), nullableAccount(string(hash)), id, owner); e != nil {
 		return 0, e
 	}
 	if _, e = tx.Exec(ctx, `insert into fq_platform.audit(family_id,action,operator) values($1,'provision',$2)`, id, operator); e != nil {
 		return 0, e
 	}
+	if registration != nil {
+		if _, e = tx.Exec(ctx, `insert into fq_platform.identities(issuer,subject,family_id) values($1,$2,$3)`, registration.issuer, registration.subject, id); e != nil {
+			return 0, e
+		}
+		if _, e = tx.Exec(ctx, "grant "+role+" to "+pgx.Identifier{registration.coreRole}.Sanitize()); e != nil {
+			return 0, e
+		}
+		if _, e = tx.Exec(ctx, `insert into fq_platform.audit(family_id,action,operator) values($1,'self-register','oidc')`, id); e != nil {
+			return 0, e
+		}
+	}
 	return id, tx.Commit(ctx)
+}
+func nullableAccount(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 func grantFamily(ctx context.Context, tx pgx.Tx, schema, role string) error {
 	sch := pgx.Identifier{schema}.Sanitize()
@@ -268,7 +334,7 @@ func (p *Platform) Account(ctx context.Context, email, password string) (int64, 
 }
 func (p *Platform) Subscription(ctx context.Context, id int64) (domain.FamilySubscription, error) {
 	v := domain.FamilySubscription{FamilyID: id}
-	e := p.root.pool.QueryRow(ctx, `select f.name,f.status,f.created_at,f.plan,a.email,exists(select 1 from fq_platform.payments x where x.family_id=f.id and x.starts_at<=now() and x.ends_at>now() and x.refunded_at is null) from fq_platform.families f join fq_platform.accounts a on a.family_id=f.id where f.id=$1`, id).Scan(&v.Name, &v.Status, &v.RegisteredAt, &v.Plan, &v.OwnerEmail, &v.Paid)
+	e := p.root.pool.QueryRow(ctx, `select f.name,f.status,f.created_at,f.plan,coalesce(a.email,''),exists(select 1 from fq_platform.payments x where x.family_id=f.id and x.starts_at<=now() and x.ends_at>now() and x.refunded_at is null) from fq_platform.families f join fq_platform.accounts a on a.family_id=f.id where f.id=$1`, id).Scan(&v.Name, &v.Status, &v.RegisteredAt, &v.Plan, &v.OwnerEmail, &v.Paid)
 	if e != nil {
 		return v, e
 	}
@@ -460,7 +526,7 @@ func (p *Platform) configureRuntime(ctx context.Context, role string, withAccoun
 	if !safe {
 		return fmt.Errorf("runtime role must not have administrative attributes")
 	}
-	grants := "alter role " + name + " noinherit; grant usage on schema fq_platform to " + name + "; grant select on fq_platform.families to " + name
+	grants := "alter role " + name + " noinherit; grant usage on schema fq_platform to " + name + "; grant select on fq_platform.families to " + name + "; grant update(name) on fq_platform.families to " + name
 	if withAccounts {
 		grants += "; grant select on fq_platform.accounts,fq_platform.payments to " + name
 	} else {
@@ -548,4 +614,20 @@ func (p *Platform) RefundPayment(ctx context.Context, reference, operator string
 		return e
 	}
 	return tx.Commit(ctx)
+}
+
+// RenameFamily has a column-only grant; callers must authorize the current parent and family.
+func (p *Platform) RenameFamily(ctx context.Context, id int64, name string) error {
+	name = strings.TrimSpace(name)
+	if id <= 0 || domain.ValidateFamilyName(name) != nil {
+		return domain.ErrInvalidInput
+	}
+	result, err := p.root.pool.Exec(ctx, `update fq_platform.families set name=$2 where id=$1 and status='active'`, id, name)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return domain.ErrUnauthorized
+	}
+	return nil
 }

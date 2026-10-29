@@ -18,6 +18,8 @@ import (
 
 type linkedCatalog struct{ fakeCatalog }
 
+func (linkedCatalog) PortalFamily(context.Context, string, string) (int64, error) { return 1, nil }
+
 func (linkedCatalog) Identity(context.Context, string, string) (int64, int64, error) {
 	return 1, 2, nil
 }

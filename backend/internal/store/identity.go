@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/lobov/familyquest/backend/internal/domain"
@@ -12,8 +13,7 @@ import (
 // BindIdentity is an explicit operator binding; matching email never links accounts.
 // BindIdentity — явная привязка оператором; совпадение email не связывает аккаунты.
 func (p *Platform) BindIdentity(ctx context.Context, issuer, subject string, family int64, operator string) error {
-	u, e := url.Parse(issuer)
-	if e != nil || u.Host == "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"))) || u.User != nil || u.RawQuery != "" || u.Fragment != "" || subject == "" || len(subject) > 512 || family <= 0 || operator == "" {
+	if !validIdentity(issuer, subject) || family <= 0 || operator == "" {
 		return domain.ErrInvalidInput
 	}
 	tx, e := p.root.pool.Begin(ctx)
@@ -21,6 +21,9 @@ func (p *Platform) BindIdentity(ctx context.Context, issuer, subject string, fam
 		return e
 	}
 	defer rollback(tx)
+	if _, e = tx.Exec(ctx, `select pg_advisory_xact_lock(88340219)`); e != nil {
+		return e
+	}
 	var exists int64
 	e = tx.QueryRow(ctx, `select family_id from fq_platform.identities where issuer=$1 and subject=$2`, issuer, subject).Scan(&exists)
 	if e == nil {
@@ -58,4 +61,9 @@ func (p *Platform) PortalFamily(ctx context.Context, issuer, subject string) (in
 		err = domain.ErrUnauthorized
 	}
 	return family, err
+}
+
+func validIdentity(issuer, subject string) bool {
+	u, err := url.Parse(issuer)
+	return err == nil && u.Host != "" && (u.Scheme == "https" || (u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"))) && u.User == nil && u.RawQuery == "" && u.Fragment == "" && len(issuer) <= 2048 && strings.TrimSpace(subject) != "" && len(subject) <= 512
 }

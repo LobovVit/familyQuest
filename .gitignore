@@ -21,3 +21,5 @@ docker-compose.override.yml
 
 # Server deployment mode (not credentials)
 .access-proxy-enabled
+
+.self-registration-enabled
