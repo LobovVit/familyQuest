@@ -9,6 +9,7 @@ import (
 
 type NotificationRepository interface {
 	SetNotificationRecipient(context.Context, domain.NotificationRecipient, bool) error
+	RevokeNotificationRecipient(context.Context, string) error
 	ClaimNotification(context.Context) (*domain.NotificationDelivery, error)
 	NotificationAllowed(context.Context, string, string) (bool, error)
 	SettleNotification(context.Context, domain.NotificationSettlement) error
@@ -36,7 +37,10 @@ func (s *Service) SetNotificationRecipient(ctx context.Context, v domain.Notific
 		return domain.ErrInvalidInput
 	}
 	if enabled {
-		if len(v.Issuer) == 0 || len(v.Issuer) > 2048 || strings.TrimSpace(v.Subject) == "" || len(v.Subject) > 512 || v.ParentID <= 0 {
+		if e := s.repo.CheckWriteAccess(ctx); e != nil {
+			return e
+		}
+		if len(v.Issuer) == 0 || len(v.Issuer) > 2048 || strings.TrimSpace(v.Subject) == "" || len(v.Subject) > 512 || v.ParentID <= 0 || !strings.HasPrefix(v.BindingID, "tgb_") || len(v.BindingID) < 5 || len(v.BindingID) > 128 {
 			return domain.ErrInvalidInput
 		}
 		p, e := s.repo.GetParticipant(ctx, v.ParentID)
@@ -48,6 +52,12 @@ func (s *Service) SetNotificationRecipient(ctx context.Context, v domain.Notific
 		}
 	}
 	return s.repo.SetNotificationRecipient(ctx, v, enabled)
+}
+func (s *Service) RevokeNotificationRecipient(ctx context.Context, ref string) error {
+	if s.familyID <= 0 || len(ref) == 0 || len(ref) > 128 {
+		return domain.ErrInvalidInput
+	}
+	return s.repo.RevokeNotificationRecipient(ctx, ref)
 }
 func (s *Service) ClaimNotification(ctx context.Context) (*domain.NotificationDelivery, error) {
 	if s.familyID <= 0 {
@@ -75,7 +85,7 @@ func (s *Service) SettleNotification(ctx context.Context, v domain.NotificationS
 		return domain.ErrInvalidInput
 	}
 	switch v.ErrorCode {
-	case "", "transport", "portal_unavailable", "portal_denied", "portal_conflict", "portal_invalid", "identity_unavailable", "registry_unavailable", "recipient_revoked", "parent_revoked", "invalid_response":
+	case "", "transport", "portal_unavailable", "portal_denied", "portal_conflict", "portal_invalid", "identity_unavailable", "recipient_revoked", "authorization_revoked", "invalid_response":
 	default:
 		return domain.ErrInvalidInput
 	}

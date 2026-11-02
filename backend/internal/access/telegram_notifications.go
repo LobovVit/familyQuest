@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -15,129 +13,29 @@ import (
 	"github.com/lobov/familyquest/backend/internal/httpapi"
 )
 
-type telegramRecipient struct {
-	Disabled             bool
-	Ref, Issuer, Subject string
-	SubscriptionID       string
-	Family, Parent       int64
+// The single Access process serializes consent and dispatch. Durable recipient state,
+// generations and revocations belong to Core PostgreSQL, never an Access file.
+type TelegramNotifications struct{ deliveryMu sync.Mutex }
+
+func NewTelegramNotifications() *TelegramNotifications { return &TelegramNotifications{} }
+
+type telegramBinding struct {
+	BindingID    string `json:"bindingId"`
+	RecipientRef string `json:"recipientRef"`
+	Issuer       string `json:"issuer"`
+	Subject      string `json:"subject"`
 }
 
-// This registry stores adult opt-ins and revocation tombstones. Core owns the transactional
-// handoff outbox; Portal owns remote consent, deduplication and Telegram delivery.
-// Sessions and initData are deliberately never persisted here.
-type TelegramNotifications struct {
-	mu         sync.Mutex
-	deliveryMu sync.Mutex
-	path       string
-	recipients map[string]telegramRecipient
+func notificationBinding(v domain.NotificationRecipient) telegramBinding {
+	return telegramBinding{v.BindingID, v.Reference, v.Issuer, v.Subject}
 }
-
-func NewTelegramNotifications(path string) (*TelegramNotifications, error) {
-	n := &TelegramNotifications{path: path, recipients: map[string]telegramRecipient{}}
-	if path == "" {
-		return n, nil
-	} // Explicit in-memory adapter for tests.
-	b, e := os.ReadFile(path)
-	if e != nil && !os.IsNotExist(e) {
-		return nil, e
-	}
-	if e == nil {
-		if e = json.Unmarshal(b, &n.recipients); e != nil {
-			return nil, e
-		}
-		if n.recipients == nil {
-			n.recipients = map[string]telegramRecipient{}
-		}
-	}
-	if len(n.recipients) > 10000 {
-		return nil, errors.New("too many notification recipients")
-	}
-	return n, nil
-}
-func (n *TelegramNotifications) set(v telegramRecipient, enabled bool) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	next := make(map[string]telegramRecipient, len(n.recipients))
-	for k, v := range n.recipients {
-		next[k] = v
-	}
-	if _, exists := next[v.Ref]; !exists && len(next) >= 10000 {
-		return errors.New("recipient capacity")
-	}
-	if enabled {
-		v.Disabled = false
-		next[v.Ref] = v
-	} else {
-		if previous, ok := next[v.Ref]; ok {
-			v = previous
-		}
-		v.Disabled = true
-		next[v.Ref] = v
-	}
-	if n.path != "" {
-		b, e := json.Marshal(next)
-		if e != nil {
-			return e
-		}
-		f, e := os.CreateTemp(filepath.Dir(n.path), ".telegram-recipients-")
-		if e != nil {
-			return e
-		}
-		defer os.Remove(f.Name())
-		if _, e = f.Write(b); e != nil {
-			f.Close()
-			return e
-		}
-		if e = f.Sync(); e != nil {
-			f.Close()
-			return e
-		}
-		if e = f.Close(); e != nil {
-			return e
-		}
-		if e = os.Rename(f.Name(), n.path); e != nil {
-			return e
-		}
-		dir, e := os.Open(filepath.Dir(n.path))
-		if e != nil {
-			return e
-		}
-		e = dir.Sync()
-		closeErr := dir.Close()
-		if e != nil {
-			return e
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-	}
-	n.recipients = next
-	return nil
-}
-func (n *TelegramNotifications) family(id int64) []telegramRecipient {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	result := []telegramRecipient{}
-	for _, v := range n.recipients {
-		if v.Family == id && !v.Disabled {
-			result = append(result, v)
-		}
-	}
-	return result
-}
-func (n *TelegramNotifications) get(ref string) (telegramRecipient, bool) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	v, ok := n.recipients[ref]
-	return v, ok
-}
-func (v telegramRecipient) domain() domain.NotificationRecipient {
-	return domain.NotificationRecipient{Reference: v.Ref, SubscriptionID: v.SubscriptionID, Issuer: v.Issuer, Subject: v.Subject, ParentID: v.Parent}
+func (b telegramBinding) matches(s telegramSession) bool {
+	return strings.HasPrefix(b.BindingID, "tgb_") && len(b.BindingID) > 4 && len(b.BindingID) <= 128 && b.RecipientRef == s.RecipientRef && b.Issuer == s.Issuer && b.Subject == s.Subject
 }
 func newSubscriptionID() (string, error) {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
+	if _, e := rand.Read(b[:]); e != nil {
+		return "", e
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
@@ -157,7 +55,7 @@ func (g *Gateway) telegramConsent(w http.ResponseWriter, r *http.Request, s tele
 	}
 	n.deliveryMu.Lock()
 	defer n.deliveryMu.Unlock()
-	v := telegramRecipient{Ref: s.RecipientRef, Issuer: s.Issuer, Subject: s.Subject, Family: s.Family}
+	v := domain.NotificationRecipient{Reference: s.RecipientRef, Issuer: s.Issuer, Subject: s.Subject}
 	if in.Enabled {
 		p, e := g.Telegram.validate(r.Context(), s)
 		if e != nil {
@@ -177,39 +75,45 @@ func (g *Gateway) telegramConsent(w http.ResponseWriter, r *http.Request, s tele
 			fail(w, 401, "Войдите в родительский профиль")
 			return
 		}
-		if !state.Principal.IsParent() || state.Principal.FamilyID != s.Family || state.Subscription.Status != "active" {
-			fail(w, 403, "Уведомления доступны только взрослому своей семьи")
+		if !state.Principal.IsParent() || state.Principal.FamilyID != s.Family || state.Subscription.Status != "active" || !state.Subscription.Access {
+			fail(w, 403, "Уведомления доступны только взрослому своей семьи с действующим доступом")
 			return
 		}
-		v.Parent = state.Principal.ParticipantID
+		v.ParentID = state.Principal.ParticipantID
 		v.SubscriptionID, e = newSubscriptionID()
 		if e != nil {
 			telegramFail(w, e)
 			return
 		}
 	}
-	old, exists := n.get(v.Ref)
-	// Durable local revocation precedes both remote calls, including during a Portal outage.
-	if e := n.set(v, false); e != nil {
-		telegramFail(w, e)
+	// A selected family is server-validated. Before selection, remote opt-out still
+	// revokes all bindings for this bot; old local rows are cancelled by eligibility.
+	var localErr error
+	if !in.Enabled && s.Family > 0 {
+		localErr = g.notificationRPC(r.Context(), "revoke", httpapi.NotificationRequest{FamilyID: s.Family, Recipient: domain.NotificationRecipient{Reference: s.RecipientRef}}, nil)
+	}
+	remoteErr := g.Telegram.Portal.Call(r.Context(), "notifications/consent", map[string]any{"sessionToken": s.Token, "enabled": in.Enabled}, nil)
+	if remoteErr != nil {
+		telegramFail(w, remoteErr)
 		return
 	}
-	if exists && old.SubscriptionID != "" {
-		if e := g.notificationRPC(r.Context(), "recipient", httpapi.NotificationRequest{FamilyID: old.Family, Recipient: old.domain(), Enabled: false}, nil); e != nil && in.Enabled {
-			telegramFail(w, e)
-			return
-		}
-	}
-	if e := g.Telegram.Portal.Call(r.Context(), "notifications/consent", map[string]any{"sessionToken": s.Token, "enabled": in.Enabled}, nil); e != nil {
-		telegramFail(w, e)
+	if localErr != nil {
+		telegramFail(w, localErr)
 		return
 	}
 	if in.Enabled {
-		e := g.notificationRPC(r.Context(), "recipient", httpapi.NotificationRequest{FamilyID: v.Family, Recipient: v.domain(), Enabled: true}, nil)
+		var binding telegramBinding
+		e := g.Telegram.Portal.Call(r.Context(), "notifications/binding", map[string]string{"sessionToken": s.Token}, &binding)
+		if e == nil && !binding.matches(s) {
+			e = errors.New("invalid notification binding")
+		}
 		if e == nil {
-			e = n.set(v, true)
+			v.BindingID = binding.BindingID
+			e = g.notificationRPC(r.Context(), "recipient", httpapi.NotificationRequest{FamilyID: s.Family, Recipient: v, Enabled: true}, nil)
 		}
 		if e != nil {
+			// No new SQL generation is enabled without the verified binding. Existing
+			// consent is never implicitly migrated to another identity or parent.
 			_ = g.Telegram.Portal.Call(r.Context(), "notifications/consent", map[string]any{"sessionToken": s.Token, "enabled": false}, nil)
 			telegramFail(w, e)
 			return

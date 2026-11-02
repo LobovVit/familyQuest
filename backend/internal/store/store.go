@@ -703,8 +703,8 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, participantID int64) (
 		return Task{}, err
 	}
 	// The event and business state commit together, including completions through MCP.
-	_, err = tx.Exec(ctx, `insert into notification_outbox(task_id,recipient_ref,subscription_id,issuer,subject,parent_id)
- select $1,r.recipient_ref,r.subscription_id,r.issuer,r.subject,r.parent_id from notification_recipients r
+	_, err = tx.Exec(ctx, `insert into notification_outbox(task_id,recipient_ref,subscription_id,issuer,subject,parent_id,binding_id)
+ select $1,r.recipient_ref,r.subscription_id,r.issuer,r.subject,r.parent_id,r.binding_id from notification_recipients r
  join participants p on p.id=r.parent_id where r.enabled and p.active and p.role='parent'`, taskID)
 	if err != nil {
 		return Task{}, err

@@ -90,17 +90,12 @@ func main() {
 		}
 		accountURL := strings.TrimRight(os.Getenv("TELEGRAM_PORTAL_ORIGIN"), "/") + "/telegram"
 		gateway.Telegram = access.NewTelegram(portal, catalog, os.Getenv("OIDC_ISSUER"), accountURL, gateway.SSO.Login.Secure())
-		if path := os.Getenv("TELEGRAM_RECIPIENTS_FILE"); path != "" {
-			gateway.Telegram.Notifications, err = access.NewTelegramNotifications(path)
-			if err != nil {
-				log.Fatal("Telegram recipients storage: ", err)
-			}
-		}
+		gateway.Telegram.Notifications = access.NewTelegramNotifications()
 	}
 	var outboxDone chan struct{}
 	if os.Getenv("TELEGRAM_OUTBOX_ENABLED") == "true" {
 		if gateway.Telegram == nil || gateway.Telegram.Notifications == nil {
-			log.Fatal("Telegram outbox requires Telegram and persistent recipients storage")
+			log.Fatal("Telegram outbox requires Telegram Access mode")
 		}
 		outboxDone = make(chan struct{})
 		go func() { defer close(outboxDone); gateway.RunTelegramOutbox(ctx, catalog) }()

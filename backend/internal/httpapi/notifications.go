@@ -36,6 +36,8 @@ func (s *SaaS) notifications(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case NotificationPath + "recipient":
 		respond(w, map[string]bool{"ok": true}, app.SetNotificationRecipient(r.Context(), in.Recipient, in.Enabled))
+	case NotificationPath + "revoke":
+		respond(w, map[string]bool{"ok": true}, app.RevokeNotificationRecipient(r.Context(), in.Recipient.Reference))
 	case NotificationPath + "claim":
 		v, e := app.ClaimNotification(r.Context())
 		respond(w, v, e)

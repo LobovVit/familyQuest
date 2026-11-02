@@ -5,6 +5,7 @@ import "time"
 type NotificationRecipient struct {
 	Reference      string `json:"reference"`
 	SubscriptionID string `json:"subscriptionId"`
+	BindingID      string `json:"bindingId"`
 	Issuer         string `json:"issuer"`
 	Subject        string `json:"subject"`
 	ParentID       int64  `json:"parentId"`

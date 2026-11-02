@@ -70,16 +70,6 @@ func (g *Gateway) dispatchNotification(ctx context.Context, family int64, job do
 	defer n.deliveryMu.Unlock()
 	settlement := domain.NotificationSettlement{ID: job.ID, Lease: job.Lease, Outcome: "retry", ErrorCode: "transport"}
 	deliver := func() {
-		current, ok := n.get(job.Recipient.Reference)
-		if !ok {
-			settlement.ErrorCode = "registry_unavailable"
-			return
-		}
-		if current.Disabled || current.Family != family || current.domain() != job.Recipient {
-			settlement.Outcome = "cancelled"
-			settlement.ErrorCode = "recipient_revoked"
-			return
-		}
 		actual, _, err := g.Telegram.Catalog.Identity(ctx, job.Recipient.Issuer, job.Recipient.Subject)
 		if errors.Is(err, domain.ErrUnauthorized) || err == nil && actual != family {
 			settlement.Outcome = "cancelled"
@@ -98,13 +88,23 @@ func (g *Gateway) dispatchNotification(ctx context.Context, family int64, job do
 		}
 		if !check.Allowed {
 			settlement.Outcome = "cancelled"
-			settlement.ErrorCode = "parent_revoked"
+			settlement.ErrorCode = "authorization_revoked"
 			return
+		}
+		bound := notificationBinding(job.Recipient)
+		var eligibility struct {
+			Eligible bool `json:"eligible"`
+		}
+		err = g.Telegram.Portal.Call(ctx, "notifications/eligibility", bound, &eligibility)
+		if err == nil && !eligibility.Eligible {
+			err = telegramPortalError{status: 403, code: "denied"}
 		}
 		var accepted struct {
 			ID string `json:"notificationId"`
 		}
-		err = g.Telegram.Portal.Call(ctx, "notifications", map[string]string{"recipientRef": job.Recipient.Reference, "eventKey": "familyquest-" + job.ID, "template": "activity"}, &accepted)
+		if err == nil {
+			err = g.Telegram.Portal.Call(ctx, "notifications", map[string]string{"recipientRef": bound.RecipientRef, "bindingId": bound.BindingID, "issuer": bound.Issuer, "subject": bound.Subject, "eventKey": "familyquest-" + job.ID, "template": "activity"}, &accepted)
+		}
 		if err != nil {
 			var rejected telegramPortalError
 			if errors.As(err, &rejected) {
@@ -137,7 +137,7 @@ func (g *Gateway) dispatchNotification(ctx context.Context, family int64, job do
 		return err
 	}
 	if settlement.Outcome == "retry" || settlement.Outcome == "failed" {
-		log.Printf("telegram outbox outcome=%s code=%s attempt=%d", settlement.Outcome, settlement.ErrorCode, job.Attempts)
+		log.Printf("telegram outbox family=%d event=%s outcome=%s code=%s attempt=%d", family, job.ID, settlement.Outcome, settlement.ErrorCode, job.Attempts)
 	}
 	return nil
 }

@@ -20,7 +20,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) != 2 {
-		return fmt.Errorf("usage: operator migrate|provision|claim-legacy|registry|payment|refund|suspend|resume|reset-account|bind-identity|grant-runtime|grant-core|grant-access < input.json")
+		return fmt.Errorf("usage: operator migrate|notification-status|provision|claim-legacy|registry|payment|refund|suspend|resume|reset-account|bind-identity|grant-runtime|grant-core|grant-access < input.json")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -49,6 +49,23 @@ func run() error {
 		return nil
 	}
 	switch cmd {
+	case "notification-status":
+		var in struct{ FamilyID int64 }
+		if e = decode(&in); e != nil {
+			return e
+		}
+		if in.FamilyID <= 0 {
+			return fmt.Errorf("positive familyId required")
+		}
+		repo, e := p.Family(ctx, in.FamilyID)
+		if e != nil {
+			return e
+		}
+		v, e := repo.NotificationStatus(ctx)
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(v)
 	case "bind-identity":
 		var in struct {
 			Issuer, Subject, Operator string

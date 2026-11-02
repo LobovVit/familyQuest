@@ -115,7 +115,11 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 	exchangeCount := 0
 	notificationCalls := 0
 	lostNotificationResponse := false
+	bindingGeneration := 0
+	bindingID := ""
+	invalidBinding := false
 	expires := time.Now().Add(time.Hour)
+	initialExpiry := expires
 	portal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -154,7 +158,7 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 			}
 			json.NewEncoder(w).Encode(map[string]any{"sessionToken": "tgs_test_server_only", "expiresAt": expires, "principal": principal})
 		case "/v1/telegram/session":
-			if revoked || in["sessionToken"] != "tgs_test_server_only" {
+			if revoked || !expires.After(time.Now()) || in["sessionToken"] != "tgs_test_server_only" {
 				w.WriteHeader(401)
 				return
 			}
@@ -162,14 +166,41 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 		case "/v1/telegram/link/claim":
 			json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 		case "/v1/telegram/notifications/consent":
-			consented = in["enabled"] == true
+			enabled := in["enabled"] == true
+			if enabled && !consented {
+				bindingGeneration++
+				bindingID = fmt.Sprintf("tgb_test_%d", bindingGeneration)
+			}
+			if !enabled {
+				bindingID = ""
+			}
+			consented = enabled
 			json.NewEncoder(w).Encode(map[string]bool{"ok": true})
-		case "/v1/telegram/notifications":
-			if !consented || revoked {
+		case "/v1/telegram/notifications/binding":
+			if !consented || revoked || in["sessionToken"] != "tgs_test_server_only" || !expires.After(time.Now()) {
 				w.WriteHeader(403)
+				fmt.Fprint(w, `{"error":"denied"}`)
 				return
 			}
-			if len(in) != 3 || in["template"] != "activity" || in["recipientRef"] != "tgr_test_adult" {
+			bindingSubject := subject
+			if invalidBinding {
+				bindingSubject = "another-account"
+			}
+			json.NewEncoder(w).Encode(map[string]string{"bindingId": bindingID, "recipientRef": "tgr_test_adult", "issuer": provider.Server.URL, "subject": bindingSubject})
+		case "/v1/telegram/notifications/eligibility", "/v1/telegram/notifications":
+			if !consented || revoked || in["bindingId"] != bindingID || in["issuer"] != provider.Server.URL || in["subject"] != subject || in["recipientRef"] != "tgr_test_adult" {
+				w.WriteHeader(403)
+				fmt.Fprint(w, `{"error":"denied"}`)
+				return
+			}
+			if r.URL.Path == "/v1/telegram/notifications/eligibility" {
+				if len(in) != 4 {
+					t.Error("eligibility must be independent of UI session", in)
+				}
+				json.NewEncoder(w).Encode(map[string]bool{"eligible": true})
+				return
+			}
+			if len(in) != 6 || in["template"] != "activity" || in["recipientRef"] != "tgr_test_adult" {
 				t.Error("unsafe notification payload")
 			}
 			key, _ := in["eventKey"].(string)
@@ -201,11 +232,7 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.Telegram = access.NewTelegram(transport, p, provider.Server.URL, "https://portal.example/telegram", true)
-	recipientsFile := t.TempDir() + "/recipients.json"
-	g.Telegram.Notifications, err = access.NewTelegramNotifications(recipientsFile)
-	if err != nil {
-		t.Fatal(err)
-	}
+	g.Telegram.Notifications = access.NewTelegramNotifications()
 	var cookie *http.Cookie
 	call := func(method, path, body, token string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "https://family.example"+path, strings.NewReader(body))
@@ -266,16 +293,31 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 	}
 	parentToken := parentSession.Token
 	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, ""), 401)
-	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, parentToken), 200)
-	// Persistence survives restart without any Telegram session token in the file.
-	raw, _ := os.ReadFile(recipientsFile)
-	if strings.Contains(string(raw), "tgs_") || strings.Contains(string(raw), "Private child") {
-		t.Fatal("secret in recipient file")
+	mu.Lock()
+	invalidBinding = true
+	mu.Unlock()
+	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, parentToken), 503)
+	var invalidRecipients int
+	if err = own.db.QueryRow(ctx, `select count(*) from notification_recipients`).Scan(&invalidRecipients); err != nil || invalidRecipients != 0 {
+		t.Fatal("mismatched binding saved", err)
 	}
-	g.Telegram.Notifications, err = access.NewTelegramNotifications(recipientsFile)
-	if err != nil {
+	mu.Lock()
+	if consented {
+		t.Error("failed binding enrollment did not compensate remote consent")
+	}
+	invalidBinding = false
+	mu.Unlock()
+	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, parentToken), 200)
+	// Consent is durable SQL, contains no UI token and needs no files on restart.
+	var raw string
+	if err = own.db.QueryRow(ctx, `select to_jsonb(r)::text from notification_recipients r`).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(raw, "tgs_") || strings.Contains(raw, "Private child") {
+		t.Fatal("secret in durable consent")
+	}
+	g.Telegram.Notifications = access.NewTelegramNotifications()
+
 	chore := call("POST", "/api/chores", fmt.Sprintf(`{"title":"Read a book","schedule":"daily","baseValue":50,"participantIds":[%d]}`, child.ID), parentToken)
 	want(chore, 201)
 	tasksResult := call("GET", "/api/tasks?date="+time.Now().Format("2006-01-02"), "", parentToken)
@@ -307,6 +349,14 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	want(call("POST", completePath, `{}`, childSession.Token), 200)
+	var beforeGeneration, afterGeneration string
+	if err = own.db.QueryRow(ctx, `select subscription_id::text from notification_recipients`).Scan(&beforeGeneration); err != nil {
+		t.Fatal(err)
+	}
+	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, parentToken), 200)
+	if err = own.db.QueryRow(ctx, `select subscription_id::text from notification_recipients`).Scan(&afterGeneration); err != nil || beforeGeneration != afterGeneration {
+		t.Fatal("repeated consent lost queued generation", err)
+	}
 	want(call("POST", httpapi.NotificationPath+"claim", fmt.Sprintf(`{"familyId":%d}`, ids[0]), parentToken), 404)
 	mu.Lock()
 	earlyMessages := len(events)
@@ -370,12 +420,10 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 		t.Fatal(e)
 	}
 	restarted.Telegram = access.NewTelegram(transport, p, provider.Server.URL, "https://portal.example/telegram", true)
-	restarted.Telegram.Notifications, e = access.NewTelegramNotifications(recipientsFile)
-	if e != nil {
-		t.Fatal(e)
-	}
+	restarted.Telegram.Notifications = access.NewTelegramNotifications()
 	mu.Lock()
 	unavailable = false
+	expires = time.Now().Add(-time.Hour) // UI expiry must not affect durable delivery.
 	lostNotificationResponse = true
 	mu.Unlock()
 	if n, e := restarted.DispatchTelegramNotifications(ctx, ids[0], 10); e != nil || n != 1 {
@@ -414,6 +462,9 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 	if count != 1 {
 		t.Fatal("expected one neutral notification", count)
 	}
+	mu.Lock()
+	expires = initialExpiry
+	mu.Unlock()
 	want(call("POST", completePath, `{}`, childSession.Token), 404)
 	confirmed := call("POST", confirmPath, `{"rating":5}`, parentToken)
 	want(confirmed, 200)
@@ -465,6 +516,17 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 	if _, e = own.CompleteTask(ctx, tomorrow, child.ID); e != nil {
 		t.Fatal(e)
 	}
+	mu.Lock()
+	unavailable = true
+	mu.Unlock()
+	want(call("POST", "/api/telegram/consent", `{"enabled":false}`, parentToken), 503)
+	var enabled bool
+	if err = own.db.QueryRow(ctx, `select enabled from notification_recipients where recipient_ref='tgr_test_adult'`).Scan(&enabled); err != nil || enabled {
+		t.Fatal("Portal outage lost durable opt-out", err)
+	}
+	mu.Lock()
+	unavailable = false
+	mu.Unlock()
 	want(call("POST", "/api/telegram/consent", `{"enabled":false}`, parentToken), 200)
 	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, parentToken), 200)
 	if n, e := g.DispatchTelegramNotifications(ctx, ids[0], 10); e != nil || n != 0 {
@@ -473,6 +535,59 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 	var cancelled int
 	if err = own.db.QueryRow(ctx, `select count(*) from notification_outbox where state='cancelled'`).Scan(&cancelled); err != nil || cancelled != 1 {
 		t.Fatal("pending optout", cancelled, err)
+	}
+	// /stop is external to the product: eligibility must revoke the exact durable
+	// generation and all its pending rows without waiting for another UI visit.
+	queueDay := func(day int) {
+		t.Helper()
+		list, e := own.ListTasks(ctx, time.Now().Add(time.Duration(day)*24*time.Hour))
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, v := range list {
+			if v.Status == "pending" {
+				if _, e = own.CompleteTask(ctx, v.ID, child.ID); e != nil {
+					t.Fatal(e)
+				}
+				return
+			}
+		}
+		t.Fatal("missing pending task")
+	}
+	queueDay(7)
+	queueDay(8)
+	mu.Lock()
+	consented = false
+	bindingID = ""
+	mu.Unlock()
+	if n, e := restarted.DispatchTelegramNotifications(ctx, ids[0], 10); e != nil || n != 1 {
+		t.Fatal("stop did not cancel pending generation", n, e)
+	}
+	stats, e := own.NotificationStatus(ctx)
+	if e != nil || stats.Pending != 0 || stats.EnabledRecipients != 0 || stats.Cancelled != 3 || stats.Delivered != 1 {
+		t.Fatal("stop diagnostics", stats, e)
+	}
+	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, parentToken), 200)
+	if n, e := restarted.DispatchTelegramNotifications(ctx, ids[0], 10); e != nil || n != 0 {
+		t.Fatal("relink revived stopped work", n, e)
+	}
+	queueDay(9)
+	old, e := own.ClaimNotification(ctx)
+	if e != nil || old == nil {
+		t.Fatal("old binding claim", e)
+	}
+	// Emulate an independent binding rotation while a worker holds an old lease.
+	mu.Lock()
+	consented = false
+	bindingID = ""
+	mu.Unlock()
+	want(call("POST", "/api/telegram/consent", `{"enabled":true}`, parentToken), 200)
+	if e = own.SettleNotification(ctx, domain.NotificationSettlement{ID: old.ID, Lease: old.Lease, Outcome: "cancelled", ErrorCode: "portal_denied"}); !errors.Is(e, domain.ErrConflict) {
+		t.Fatal("old worker changed new consent", e)
+	}
+	stats, e = own.NotificationStatus(ctx)
+	if e != nil || stats.EnabledRecipients != 1 || stats.Pending != 0 {
+		t.Fatal("new consent damaged by stale denial", stats, e)
 	}
 	// Existing local rights and Portal both remain authoritative.
 	_, _ = root.pool.Exec(ctx, "update "+schemaFor(ids[0])+".service_policy set access_until=now()-interval '1 hour'")
@@ -496,12 +611,12 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 	want(call("POST", confirmPath, `{"rating":5}`, parentToken), 401)
 	want(call("POST", "/api/telegram/logout", `{}`, ""), 200)
 	// Queue scope, current role and backup restore remain authoritative independently of Portal.
-	recipient := domain.NotificationRecipient{Reference: "tgr_restore_test", SubscriptionID: "00000000-0000-4000-8000-000000000001", Issuer: provider.Server.URL, Subject: subject, ParentID: owner}
-	if err = own.SetNotificationRecipient(ctx, recipient, true); err != nil {
-		t.Fatal(err)
-	}
+	recipient := domain.NotificationRecipient{Reference: "tgr_restore_test", BindingID: "tgb_restore_test", SubscriptionID: "00000000-0000-4000-8000-000000000001", Issuer: provider.Server.URL, Subject: subject, ParentID: owner}
 	if _, e := root.pool.Exec(ctx, "update "+schemaFor(ids[0])+".service_policy set access_until=null"); e != nil {
 		t.Fatal(e)
+	}
+	if err = own.SetNotificationRecipient(ctx, recipient, true); err != nil {
+		t.Fatal(err)
 	}
 	laterTasks, e := own.ListTasks(ctx, time.Now().Add(48*time.Hour))
 	if e != nil {
@@ -540,6 +655,18 @@ func TestTelegramMiniAppRealCore(t *testing.T) {
 		t.Fatal("inactive parent retained delivery", e)
 	}
 	if _, e = own.db.Exec(ctx, `update participants set active=true where id=$1`, owner); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = root.pool.Exec(ctx, "update "+schemaFor(ids[0])+".service_policy set access_until=now()-interval '1 second'"); e != nil {
+		t.Fatal(e)
+	}
+	if ok, e := own.NotificationAllowed(ctx, leased.ID, leased.Lease); e != nil || ok {
+		t.Fatal("expired subscription retained delivery", e)
+	}
+	if e = own.SetNotificationRecipient(ctx, recipient, true); !errors.Is(e, domain.ErrForbidden) {
+		t.Fatal("expired subscription enabled consent", e)
+	}
+	if _, e = root.pool.Exec(ctx, "update "+schemaFor(ids[0])+".service_policy set access_until=null"); e != nil {
 		t.Fatal(e)
 	}
 	snapshot, e := own.ExportBackup(ctx)

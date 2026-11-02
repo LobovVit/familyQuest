@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lobov/familyquest/backend/internal/httpapi"
 )
 
 type telegramPortalStub struct {
@@ -107,39 +109,65 @@ func TestTelegramDoesNotHijackOrdinaryWebSession(t *testing.T) {
 	}
 }
 
-func TestTelegramOptOutSurvivesPortalOutage(t *testing.T) {
-	tg := NewTelegram(telegramPortalStub{err: telegramPortalError{status: 503}}, nil, "https://id.example", "https://portal.example/telegram", true)
-	n, err := NewTelegramNotifications(t.TempDir() + "/recipients.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tg.Notifications = n
-	if err = n.set(telegramRecipient{Ref: "tgr_test", Family: 1, Parent: 2}, true); err != nil {
-		t.Fatal(err)
-	}
-	r := httptest.NewRequest("POST", "https://family.example/api/telegram/consent", strings.NewReader(`{"enabled":false}`))
-	r.Header.Set("X-FamilyQuest", "1")
-	r.Header.Set("Origin", "https://family.example")
-	entry := httptest.NewRecorder()
-	if err = tg.replace(entry, r, telegramSession{Token: "server-only", RecipientRef: "tgr_test", Expires: time.Now().Add(time.Hour)}, false); err != nil {
-		t.Fatal(err)
-	}
-	r.AddCookie(entry.Result().Cookies()[0])
-	g, err := New(fakeCatalog{}, "http://127.0.0.1:1", strings.Repeat("k", 40), "https://family.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	g.Telegram = tg
-	w := httptest.NewRecorder()
-	g.ServeHTTP(w, r)
-	if w.Code != 503 {
-		t.Fatal("Portal outage must remain visible", w.Code)
-	}
-	if len(n.family(1)) != 0 {
-		t.Fatal("local opt-out lost during Portal outage")
-	}
-	restored, err := NewTelegramNotifications(n.path)
-	if err != nil || len(restored.family(1)) != 0 {
-		t.Fatal("opt-out not persisted", err)
+func TestTelegramOptOutAttemptsBothAuthorities(t *testing.T) {
+	for _, mode := range []string{"Portal unavailable", "Core unavailable"} {
+		t.Run(mode, func(t *testing.T) {
+			coreCalls, portalCalls := 0, 0
+			core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				coreCalls++
+				var in httpapi.NotificationRequest
+				json.NewDecoder(r.Body).Decode(&in)
+				if r.URL.Path != httpapi.NotificationPath+"revoke" || in.FamilyID != 1 || in.Recipient.Reference != "tgr_test" {
+					t.Error("incorrect durable revoke", in)
+				}
+				if mode == "Core unavailable" {
+					w.WriteHeader(503)
+					return
+				}
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer core.Close()
+			portal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				portalCalls++
+				var in map[string]any
+				json.NewDecoder(r.Body).Decode(&in)
+				if r.URL.Path != "/v1/telegram/notifications/consent" || in["enabled"] != false {
+					t.Error("incorrect remote revoke", in)
+				}
+				if mode == "Portal unavailable" {
+					w.WriteHeader(503)
+					return
+				}
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer portal.Close()
+			transport, e := NewTelegramPortal(portal.URL, strings.Repeat("p", 40))
+			if e != nil {
+				t.Fatal(e)
+			}
+			tg := NewTelegram(transport, nil, "https://id.example", "https://portal.example/telegram", true)
+			tg.Notifications = NewTelegramNotifications()
+			r := httptest.NewRequest("POST", "https://family.example/api/telegram/consent", strings.NewReader(`{"enabled":false}`))
+			r.Header.Set("X-FamilyQuest", "1")
+			r.Header.Set("Origin", "https://family.example")
+			entry := httptest.NewRecorder()
+			if e = tg.replace(entry, r, telegramSession{Token: "server-only", RecipientRef: "tgr_test", Family: 1, Expires: time.Now().Add(time.Hour)}, false); e != nil {
+				t.Fatal(e)
+			}
+			r.AddCookie(entry.Result().Cookies()[0])
+			g, e := New(fakeCatalog{}, core.URL, strings.Repeat("k", 40), "https://family.example")
+			if e != nil {
+				t.Fatal(e)
+			}
+			g.Telegram = tg
+			w := httptest.NewRecorder()
+			g.ServeHTTP(w, r)
+			if w.Code != 503 {
+				t.Fatal("partial opt-out failure hidden", w.Code)
+			}
+			if coreCalls != 1 || portalCalls != 1 {
+				t.Fatal("opt-out skipped authority", coreCalls, portalCalls)
+			}
+		})
 	}
 }

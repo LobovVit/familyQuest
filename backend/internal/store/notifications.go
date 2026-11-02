@@ -15,6 +15,13 @@ func (s *Store) SetNotificationRecipient(ctx context.Context, v domain.Notificat
 	}
 	defer tx.Rollback(ctx)
 	if enabled {
+		var entitled bool
+		if e = tx.QueryRow(ctx, `select access_until is null or access_until>now() from service_policy where id for share`).Scan(&entitled); e != nil {
+			return e
+		}
+		if !entitled {
+			return domain.ErrForbidden
+		}
 		// Serializes with parent changes; the application check alone is insufficient.
 		var allowed bool
 		e = tx.QueryRow(ctx, `select active and role='parent' from participants where id=$1 for share`, v.ParentID).Scan(&allowed)
@@ -24,8 +31,12 @@ func (s *Store) SetNotificationRecipient(ctx context.Context, v domain.Notificat
 		if !allowed {
 			return domain.ErrForbidden
 		}
-		_, e = tx.Exec(ctx, `insert into notification_recipients(recipient_ref,subscription_id,issuer,subject,parent_id) values($1,$2,$3,$4,$5)
-    on conflict(recipient_ref) do update set subscription_id=excluded.subscription_id,issuer=excluded.issuer,subject=excluded.subject,parent_id=excluded.parent_id,enabled=true,updated_at=now()`, v.Reference, v.SubscriptionID, v.Issuer, v.Subject, v.ParentID)
+		_, e = tx.Exec(ctx, `insert into notification_recipients(recipient_ref,subscription_id,issuer,subject,parent_id,binding_id) values($1,$2,$3,$4,$5,$6)
+    on conflict(recipient_ref) do update set subscription_id=case
+      when notification_recipients.enabled and notification_recipients.binding_id=excluded.binding_id
+       and notification_recipients.issuer=excluded.issuer and notification_recipients.subject=excluded.subject and notification_recipients.parent_id=excluded.parent_id
+      then notification_recipients.subscription_id else excluded.subscription_id end,
+    issuer=excluded.issuer,subject=excluded.subject,parent_id=excluded.parent_id,binding_id=excluded.binding_id,enabled=true,updated_at=now()`, v.Reference, v.SubscriptionID, v.Issuer, v.Subject, v.ParentID, v.BindingID)
 	} else {
 		_, e = tx.Exec(ctx, `update notification_recipients set enabled=false,updated_at=now() where recipient_ref=$1 and subscription_id=$2`, v.Reference, v.SubscriptionID)
 	}
@@ -40,13 +51,29 @@ func (s *Store) SetNotificationRecipient(ctx context.Context, v domain.Notificat
 	}
 	return tx.Commit(ctx)
 }
+
+// Revoke is durable before the remote consent call and does not require an old local file.
+func (s *Store) RevokeNotificationRecipient(ctx context.Context, ref string) error {
+	tx, e := s.db.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	if _, e = tx.Exec(ctx, `update notification_recipients set enabled=false,updated_at=now() where recipient_ref=$1`, ref); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, `update notification_outbox set state='cancelled',error_code='recipient_revoked',lease_token=null,lease_until=null,settled_at=now() where recipient_ref=$1 and state='pending'`, ref); e != nil {
+		return e
+	}
+	return tx.Commit(ctx)
+}
 func (s *Store) ClaimNotification(ctx context.Context) (*domain.NotificationDelivery, error) {
 	var v domain.NotificationDelivery
 	e := s.db.QueryRow(ctx, `with candidate as (
  select id from notification_outbox where state='pending' and available_at<=now() and (lease_until is null or lease_until<=now())
  order by available_at,created_at,id for update skip locked limit 1)
  update notification_outbox o set lease_token=gen_random_uuid(),lease_until=now()+interval '60 seconds',attempts=least(attempts+1,2147483646)
- from candidate c where o.id=c.id returning o.id::text,o.lease_token::text,o.recipient_ref,o.subscription_id::text,o.issuer,o.subject,o.parent_id,o.attempts`).Scan(&v.ID, &v.Lease, &v.Recipient.Reference, &v.Recipient.SubscriptionID, &v.Recipient.Issuer, &v.Recipient.Subject, &v.Recipient.ParentID, &v.Attempts)
+ from candidate c where o.id=c.id returning o.id::text,o.lease_token::text,o.recipient_ref,o.subscription_id::text,o.issuer,o.subject,o.parent_id,o.binding_id,o.attempts`).Scan(&v.ID, &v.Lease, &v.Recipient.Reference, &v.Recipient.SubscriptionID, &v.Recipient.Issuer, &v.Recipient.Subject, &v.Recipient.ParentID, &v.Recipient.BindingID, &v.Attempts)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -59,7 +86,8 @@ func (s *Store) NotificationAllowed(ctx context.Context, id, lease string) (bool
 	var allowed bool
 	e := s.db.QueryRow(ctx, `select exists(select 1 from notification_outbox o join notification_recipients r on r.recipient_ref=o.recipient_ref and r.subscription_id=o.subscription_id
  join participants p on p.id=o.parent_id where o.id=$1 and o.lease_token=$2 and o.state='pending' and o.lease_until>now() and r.enabled and p.active and p.role='parent'
- and r.parent_id=o.parent_id and r.issuer=o.issuer and r.subject=o.subject)`, id, lease).Scan(&allowed)
+ and r.parent_id=o.parent_id and r.issuer=o.issuer and r.subject=o.subject and r.binding_id=o.binding_id and o.binding_id<>''
+ and exists(select 1 from service_policy where id and (access_until is null or access_until>now())))`, id, lease).Scan(&allowed)
 	return allowed, e
 }
 func (s *Store) SettleNotification(ctx context.Context, v domain.NotificationSettlement) error {
@@ -75,6 +103,19 @@ func (s *Store) SettleNotification(ctx context.Context, v domain.NotificationSet
 	}
 	if e != nil {
 		return e
+	}
+	if v.Outcome == "cancelled" && (v.ErrorCode == "portal_denied" || v.ErrorCode == "recipient_revoked") {
+		// /stop or identity revocation disables only this consent generation, not a later opt-in.
+		_, e = tx.Exec(ctx, `update notification_recipients r set enabled=false,updated_at=now()
+ from notification_outbox o where o.id=$1 and r.recipient_ref=o.recipient_ref and r.subscription_id=o.subscription_id and r.binding_id=o.binding_id`, v.ID)
+		if e != nil {
+			return e
+		}
+		_, e = tx.Exec(ctx, `update notification_outbox other set state='cancelled',error_code=$2,lease_token=null,lease_until=null,settled_at=now()
+ from notification_outbox o where o.id=$1 and other.id<>o.id and other.state='pending' and other.recipient_ref=o.recipient_ref and other.subscription_id=o.subscription_id and other.binding_id=o.binding_id`, v.ID, v.ErrorCode)
+		if e != nil {
+			return e
+		}
 	}
 	state := v.Outcome
 	delay := 0.0
