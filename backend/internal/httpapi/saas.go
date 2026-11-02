@@ -63,6 +63,10 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if s.private && strings.HasPrefix(r.URL.Path, NotificationPath) {
+		s.notifications(w, r)
+		return
+	}
 	if s.private && r.URL.Path == AccountSessionPath {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(405)

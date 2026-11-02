@@ -9,12 +9,13 @@ export class ApiError extends Error {
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set("X-FamilyQuest", "1")
+  if (typeof window !== 'undefined' && window.location.pathname === "/telegram") headers.set("X-FamilyQuest-Client", "telegram")
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   const response = await fetch(`${API_URL}${path}`, { ...init, headers, credentials:'same-origin' })
   if (!response.ok) {
-    if (response.status === 401 && !path.startsWith('/api/session') && path !== '/api/account/login' && token === getToken()) clearSession()
+    if (response.status === 401 && !path.startsWith('/api/session') && path !== '/api/account/login' && path !== '/api/telegram/profile' && token === getToken()) clearSession()
     const text = await response.text()
     let message = text || `HTTP ${response.status}`
     try { const payload = JSON.parse(text) as { error?:unknown }; if (typeof payload.error === 'string') message = payload.error } catch { /* plain-text response */ }
@@ -29,6 +30,7 @@ export async function download(path: string): Promise<Blob> {
   const token = getToken()
   const headers = new Headers(token ? { Authorization: `Bearer ${token}` } : undefined)
   headers.set('X-FamilyQuest','1')
+  if (typeof window !== 'undefined' && window.location.pathname === '/telegram') headers.set('X-FamilyQuest-Client', 'telegram')
   const response = await fetch(`${API_URL}${path}`, { headers })
   if (!response.ok) {
     if (response.status === 401 && token === getToken()) clearSession()

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,6 +80,31 @@ func main() {
 			log.Fatal(e)
 		}
 	}
+	if os.Getenv("TELEGRAM_ENABLED") == "true" {
+		if gateway.SSO == nil {
+			log.Fatal("Telegram Mini App requires OIDC Access mode")
+		}
+		portal, err := access.NewTelegramPortal(os.Getenv("TELEGRAM_PORTAL_ORIGIN"), os.Getenv("TELEGRAM_SERVICE_KEY"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		accountURL := strings.TrimRight(os.Getenv("TELEGRAM_PORTAL_ORIGIN"), "/") + "/telegram"
+		gateway.Telegram = access.NewTelegram(portal, catalog, os.Getenv("OIDC_ISSUER"), accountURL, gateway.SSO.Login.Secure())
+		if path := os.Getenv("TELEGRAM_RECIPIENTS_FILE"); path != "" {
+			gateway.Telegram.Notifications, err = access.NewTelegramNotifications(path)
+			if err != nil {
+				log.Fatal("Telegram recipients storage: ", err)
+			}
+		}
+	}
+	var outboxDone chan struct{}
+	if os.Getenv("TELEGRAM_OUTBOX_ENABLED") == "true" {
+		if gateway.Telegram == nil || gateway.Telegram.Notifications == nil {
+			log.Fatal("Telegram outbox requires Telegram and persistent recipients storage")
+		}
+		outboxDone = make(chan struct{})
+		go func() { defer close(outboxDone); gateway.RunTelegramOutbox(ctx, catalog) }()
+	}
 	info := httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)}
 	gateway.Version = &info
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,4 +139,10 @@ func main() {
 	end, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(end)
+	if outboxDone != nil {
+		select {
+		case <-outboxDone:
+		case <-end.Done():
+		}
+	}
 }

@@ -1,11 +1,12 @@
 import type { LoginResponse, Participant } from '../domain/models'
 
-const DEVICE_KEY = 'familyquest.session.device'
-const CHANGE_KEY = 'familyquest.session.change'
+const namespace = typeof window !== 'undefined' && window.location.pathname === '/telegram' ? 'familyquest.telegram.' : 'familyquest.session.'
+const DEVICE_KEY = namespace + 'device'
+const CHANGE_KEY = namespace + 'change'
 const publish = () => { try { localStorage.setItem(CHANGE_KEY, String(Date.now()) + Math.random()) } catch { /* private storage may be unavailable */ } }
 if (typeof window !== 'undefined') window.addEventListener('storage', e => { if (e.key === CHANGE_KEY) { clearSession(); window.location.reload() } })
-const TOKEN_KEY = 'familyquest.session.token'
-const PARTICIPANT_KEY = 'familyquest.session.participant'
+const TOKEN_KEY = namespace + 'token'
+const PARTICIPANT_KEY = namespace + 'participant'
 let generation = 0
 export const getSessionGeneration = () => generation
 const listeners = new Set<() => void>()

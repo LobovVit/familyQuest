@@ -13,6 +13,7 @@
 - [Yandex Cloud и оценка YDB Serverless](docs/yandex-cloud.md)
 - [Архитектурная проверка 26.09.2026](docs/review-2026-09-26.md)
 - [API и права](docs/api.md)
+- [Telegram Mini App](docs/telegram-mini-app.md)
 - [Семейная жизнь: функции и ограничения](docs/family-life.md)
 - [Эксплуатация, первый запуск и восстановление](docs/operations.md)
 - [Отчёт проверки 19.09.2026](docs/review-2026-09-19.md)

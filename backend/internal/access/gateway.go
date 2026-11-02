@@ -26,6 +26,7 @@ type Catalog interface {
 	Paid(context.Context, int64) (bool, error)
 }
 type Gateway struct {
+	Telegram       *Telegram
 	Registrar      FamilyRegistrar
 	Portal         *PortalReader
 	SSO            *SSO
@@ -106,7 +107,7 @@ func fail(w http.ResponseWriter, status int, message string) {
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Access-Control-Allow-Origin", g.cors)
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-FamilyQuest, X-FamilyQuest-Confirmation")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-FamilyQuest, X-FamilyQuest-Confirmation, X-FamilyQuest-Client")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	// Reject ambiguous paths before deciding which policy applies.
 	// Неоднозначные пути отклоняются до выбора политики доступа.
@@ -130,6 +131,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "Недопустимый источник запроса")
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/api/telegram/") {
+		g.telegram(w, r)
+		return
+	}
 	if g.SSO != nil && (r.URL.Path == "/api/account/authorize" || r.URL.Path == "/api/account/callback" || r.URL.Path == "/api/account/exchange" || r.URL.Path == "/api/account/restore" || r.URL.Path == "/api/account/profile" || r.URL.Path == "/api/account/family") {
 		g.sso(w, r)
 		return
@@ -143,7 +148,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/config" {
-		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil, "loginUrl": g.LoginPortalURL, "selfRegistration": g.Registrar != nil})
+		jsonResponse(w, 200, map[string]any{"saas": true, "sso": g.SSO != nil, "loginUrl": g.LoginPortalURL, "selfRegistration": g.Registrar != nil, "telegram": g.Telegram != nil})
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/version" && g.Version != nil {
@@ -165,11 +170,20 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/session/logout" {
+		if isTelegramRequest(r) {
+			r.URL.Path = "/api/telegram/logout"
+			g.telegram(w, r)
+			return
+		}
 		if g.SSO != nil {
 			g.logoutSSO(w, r)
 			return
 		}
 		g.proxy.ServeHTTP(w, r)
+		return
+	}
+	if isTelegramRequest(r) && !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		fail(w, 401, "Выберите профиль и введите PIN")
 		return
 	}
 	response, status, e := g.rpc(r, http.MethodGet, httpapi.IntrospectionPath, nil)
@@ -190,7 +204,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "MCP credential is restricted to /api/mcp")
 		return
 	}
-	if g.SSO != nil && !(state.Principal.MCPGrantID != "" && r.URL.Path == "/api/mcp") {
+	if isTelegramRequest(r) {
+		if !g.telegramAccess(w, r, state) {
+			return
+		}
+	} else if g.SSO != nil && !(state.Principal.MCPGrantID != "" && r.URL.Path == "/api/mcp") {
 		c, err := r.Cookie(g.SSO.sessionName())
 		if err != nil {
 			fail(w, 401, "Повторите единый вход")

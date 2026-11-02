@@ -684,7 +684,12 @@ func (s *Store) ListWeekPlan(ctx context.Context, at time.Time) ([]WeekPlanItem,
 
 func (s *Store) CompleteTask(ctx context.Context, taskID, participantID int64) (Task, error) {
 	var dueDate time.Time
-	err := s.db.QueryRow(ctx, `
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx, `
 		update tasks
 		set status = 'completed', completed_by = $2, completed_at = now()
 		where id = $1 and status in ('pending', 'needs_work')
@@ -695,6 +700,16 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, participantID int64) (
 		return Task{}, ErrNotFound
 	}
 	if err != nil {
+		return Task{}, err
+	}
+	// The event and business state commit together, including completions through MCP.
+	_, err = tx.Exec(ctx, `insert into notification_outbox(task_id,recipient_ref,subscription_id,issuer,subject,parent_id)
+ select $1,r.recipient_ref,r.subscription_id,r.issuer,r.subject,r.parent_id from notification_recipients r
+ join participants p on p.id=r.parent_id where r.enabled and p.active and p.role='parent'`, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return Task{}, err
 	}
 	return s.GetTask(ctx, taskID, dueDate)

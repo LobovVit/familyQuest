@@ -157,3 +157,23 @@ MCP — дополнительный входной адаптер `httpapi/mcp.
 Access допускает отдельную MCP-авторизацию без браузерной SSO-cookie исключительно
 на `/api/mcp` после приватной introspection. Запись сохраняет проверки подписки
 в application layer. [Полный контракт](mcp.md).
+
+## Telegram Mini App
+
+Опциональный адаптер Access (`internal/access/telegram*.go`) использует общий
+Portal v1 для подтверждения Telegram и явной привязки. Семья выбирается явно
+по существующей identity; профиль требует прежний PIN. Профильный JWT и все
+операции Core остаются прежними. Telegram cookie/состояние браузера отделены
+от обычного веб-входа, Portal проверяется на каждом защищённом Telegram-запросе.
+Frontend `/telegram` собирается из SDK-адаптера, application-портов и существующего
+FamilyQuestWorkspace. Нового слоя бизнес-правил нет; миграция 011 добавляет в каждую семейную
+схему приватные таблицы подписок и outbox.
+
+Access хранит отзывные Telegram-сессии в памяти одного экземпляра, взрослые
+opt-in recipients — в приватном файле с поколением согласия, сверяемым с SQL.
+`CompleteTask` атомарно сохраняет выполнение и outbox, в том числе для MCP.
+Независимый Access worker вызывает приватные Core claim/check/settle, без семейных
+SQL-прав. Аренда SKIP LOCKED, CAS по lease token, долговечный backoff и постоянный
+Portal eventKey защищают от потери после commit и повторной постановки при
+неопределённом ответе. JSON-restore отменяет pending, не удаляя аудит доставок.
+Границы, настройка и проверенные сценарии: [Telegram Mini App](telegram-mini-app.md).

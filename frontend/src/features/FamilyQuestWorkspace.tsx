@@ -40,10 +40,13 @@ type PinPrompt = {
 type ActiveTab = WorkspaceSection
 const tabs = workspaceSections
 
-export function FamilyQuestWorkspace({sso=false}:{sso?:boolean}) {
+export function FamilyQuestWorkspace({sso=false, miniApp=false, navigation}:{sso?:boolean;miniApp?:boolean;navigation?:{section:WorkspaceSection;setSection:(section:WorkspaceSection)=>void}}) {
  const { downloadBackup, restoreBackup } = useRuntime()
   const [selectedDate, setSelectedDate] = useState(() => localDate(new Date()))
-  const [activeTab, setActiveTab] = useState<ActiveTab>('today')
+  const [localTab, setLocalTab] = useState<ActiveTab>('today')
+  const activeTab = navigation?.section ?? localTab
+  const setActiveTab = navigation?.setSection ?? setLocalTab
+  const [selectedChild, setSelectedChild] = useState('')
   const [busyTask, setBusyTask] = useState<number | null>(null)
   const [busyBehavior, setBusyBehavior] = useState<number | null>(null)
   const [isBackupBusy, setIsBackupBusy] = useState(false)
@@ -81,14 +84,17 @@ export function FamilyQuestWorkspace({sso=false}:{sso?:boolean}) {
     if (!availableTabs.some((tab) => tab.id === activeTab)) {
       setActiveTab(currentParticipant && currentParticipant.role !== 'school' ? 'today' : 'day')
     }
-  }, [activeTab, availableTabs, currentParticipant])
+  }, [activeTab, availableTabs, currentParticipant, setActiveTab])
 
   const filteredTasks = useMemo(() => {
+    if (miniApp && currentParticipant?.role === 'parent') {
+      return selectedChild ? tasks.filter(task => task.participantId === Number(selectedChild)) : tasks
+    }
     if (currentParticipant) {
       return tasks.filter((task) => task.participantId === currentParticipant.id)
     }
     return tasks
-  }, [currentParticipant, tasks])
+  }, [currentParticipant, tasks, miniApp, selectedChild])
 
   const completedTasks = currentParticipant ? tasks.filter((task) => task.status !== 'pending').length : dayLeaderboard.reduce((sum, entry) => sum + entry.tasksDone, 0)
   const totalTasks = currentParticipant ? tasks.length : dayLeaderboard.reduce((sum, entry) => sum + entry.tasksAssigned, 0)
@@ -98,8 +104,8 @@ export function FamilyQuestWorkspace({sso=false}:{sso?:boolean}) {
     if (!currentParticipant) {
       return []
     }
-    return tasks.filter((task) => canReviewTask(currentParticipant, task))
-  }, [currentParticipant, tasks])
+    return tasks.filter((task) => canReviewTask(currentParticipant, task) && (!miniApp || !selectedChild || task.participantId === Number(selectedChild)))
+  }, [currentParticipant, tasks, miniApp, selectedChild])
 
   function askForParticipant(participant: Participant) {
     if (currentParticipant?.id === participant.id) {
@@ -475,10 +481,11 @@ export function FamilyQuestWorkspace({sso=false}:{sso?:boolean}) {
       <div className="workspace-content">
       <header className="workspace-toolbar"><div className="workspace-title"><p className="eyebrow">{currentParticipant ? 'Семейное пространство' : 'Общий прогресс семьи'}</p><h2>{availableTabs.find(tab => tab.id === activeTab)?.label ?? 'Планер'}</h2>{!currentParticipant && <small>{completedTasks}/{totalTasks} дел отмечено · {overallProgress}%</small>}</div>{renderPlanControls()}</header>
 
+      {miniApp && currentParticipant?.role === 'parent' && activeTab === 'day' && <div className="mini-child-filter"><label>Дела ребёнка <select value={selectedChild} onChange={e=>setSelectedChild(e.target.value)}><option value="">Вся семья</option>{participants.filter(p=>p.role==='child'&&p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button onClick={()=>setActiveTab('catalog')}>Назначить дело</button><p>Оценка выполненного дела подтверждает его и начисляет предусмотренные звёзды.</p></div>}
       {error && <p className="notice">{error}</p>}
 
       {<ParentConfirmation confirmation={confirmation} />}
-      {pinPrompt && <PinDialog participants={participants} options={loginOptions} onOptions={setLoginOptions} error={error} participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
+      {pinPrompt && <PinDialog allowRemember={!miniApp} participants={participants} options={loginOptions} onOptions={setLoginOptions} error={error} participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
 
       {activeTab === 'day' && <Planner participant={currentParticipant} participants={participants} tasks={tasks} filteredTasks={filteredTasks} reviewTasks={tasksForReview} assignments={assignments} ratings={behaviorRatings} day={dayLeaderboard} week={weekLeaderboard} month={monthLeaderboard} date={selectedDate} loading={isLoading} busyTask={busyTask} busyBehavior={busyBehavior} controls={null} onComplete={completeTask} onConfirm={confirmTask} onRate={rateBehavior} />}
 

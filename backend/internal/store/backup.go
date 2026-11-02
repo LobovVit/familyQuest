@@ -96,7 +96,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 		}
 	}
 	// Lock before reading credentials so a concurrent PIN update cannot be lost.
-	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards, trusted_devices, mcp_grants in access exclusive mode`); err != nil {
+	if _, err := tx.Exec(ctx, `lock table participants, chores, assignments, tasks, confirmations, behavior_ratings, rewards, reward_participants, family_entries, math_sessions, activity_rewards, trusted_devices, mcp_grants, notification_recipients, notification_outbox in access exclusive mode`); err != nil {
 		return err
 	}
 
@@ -128,6 +128,10 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	rows.Close()
 
+	// Integration queue is not portable family content. Keep audit and revoke pending delivery.
+	if _, err := tx.Exec(ctx, `update notification_outbox set state='cancelled',error_code='backup_restore',lease_token=null,lease_until=null,settled_at=now() where state='pending'; delete from notification_recipients`); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `truncate trusted_devices, math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants cascade`); err != nil {
 		return err
 	}

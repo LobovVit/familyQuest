@@ -11,6 +11,7 @@ import (
 
 // Repository is the persistence port consumed by application use cases.
 type Repository interface {
+	NotificationRepository
 	MCPRepository
 	DeviceRepository
 	LearningRepository
