@@ -11,7 +11,24 @@
     "mainMiniApp": "https://familyquest.lovit.tech/telegram",
     "identityVerified": false,
     "owner": "Root UI coordinator and Portal operator",
-    "credentialsDestination": "Portal protected bot registry only; never FamilyQuest"
+    "credentialsDestination": "Portal protected bot registry only; never FamilyQuest",
+    "protectedCapture": {
+      "helper": "/opt/lovitPortal/deploy/telegram_credentials.py",
+      "verifiedHelperRelease": "1c0fc8455e2ffd9eebb64b4b9a50fcbda49c9eb4",
+      "productSpecification": "/opt/lovitPortal/deploy/telegram-products.json:familyquest",
+      "captureCommand": "ssh -t lobov@10.66.66.6 'cd /opt/lovitPortal && python3 deploy/telegram_credentials.py --product familyquest --capture-token'",
+      "tokenDestination": "/opt/lovitPortal/private/familyquest-bot.token",
+      "tokenMode": "0600",
+      "prepareCommand": "python3 /opt/lovitPortal/deploy/telegram_credentials.py --product familyquest --prepare",
+      "installDisabledCommand": "python3 /opt/lovitPortal/deploy/telegram_credentials.py --product familyquest --install-disabled",
+      "proofDestination": "/opt/lovitPortal/private/familyquest-bot-proof.json",
+      "registrationDestination": "/opt/lovitPortal/private/familyquest-registration.json",
+      "startCondition": "Fresh exclusive FamilyQuest UI lease after Menu and Master; start hidden private TTY input only inside that slot, because the helper holds the shared Portal deploy lock",
+      "secretHandling": "Token enters hidden TTY only, never argv, command history, logs, screenshots, chat or FamilyQuest configuration. No private capture script or duplicate service-key issuance.",
+      "failureHandling": "Existing token or registration requires reconciliation; never overwrite identity or blindly create another bot. Failed hidden input is retried through the same versioned helper.",
+      "activationEffect": "Capture/prepare/installation do not enable receiver, sender, product Telegram or consent. Installation publishes enabled=false and incomingMode=disabled.",
+      "uiProofRequired": "Verify the exact Main Mini App URL separately in BotFather; has_main_web_app does not prove its URL. Set menu button to the same URL."
+    }
   },
   "keyHandoff": {
     "owner": "Portal operator",
@@ -41,7 +58,20 @@
   },
   "receiver": {
     "owner": "Portal",
-    "requirement": "Versioned, supervised per-product polling or webhook receiver with durable cursor, deduplication and fresh identity/heartbeat. FamilyQuest must not run a second getUpdates receiver.",
+    "mode": "polling",
+    "service": "telegram-familyquest-receiver",
+    "flag": "TELEGRAM_FAMILYQUEST_RECEIVER_ENABLED",
+    "senderService": "telegram-familyquest-worker",
+    "senderFlag": "TELEGRAM_FAMILYQUEST_DELIVERY_ENABLED",
+    "composeFiles": ["compose.prod.yml", "compose.telegram-receivers.yml", "compose.telegram-workers.yml"],
+    "requirement": "Exactly one versioned, supervised Portal polling receiver with durable cursor, DB lease, deduplication and fresh identity/heartbeat. No second getUpdates consumer, private polling script or parallel webhook.",
+    "registryActivationOwner": "Portal operator",
+    "requestedRegistryActivation": {"enabled": true, "incomingMode": "polling", "deliveryMode": "linked", "stage": "production", "deliveryUserIds": []},
+    "registryPrerequisite": "After verified disabled registration, Portal operator must publish the reviewed activation for familyquest only. telegram_credentials.py installs disabled; telegram_runtime.py requires the active exact registry and does not perform this registry transition.",
+    "providerPrerequisite": "getWebhookInfo must confirm no active webhook. If an unexpected webhook exists, reconcile it through Portal before polling; preserve pending updates and cursor.",
+    "planCommand": "python3 /opt/lovitPortal/deploy/telegram_runtime.py --product familyquest --enable-receiver",
+    "applyCommand": "python3 /opt/lovitPortal/deploy/telegram_runtime.py --product familyquest --enable-receiver --apply",
+    "activationBoundary": "Receiver-only operation belongs to Portal and must preserve TELEGRAM_FAMILYQUEST_DELIVERY_ENABLED=false, TELEGRAM_ENABLED=false and TELEGRAM_OUTBOX_ENABLED=false in FamilyQuest. Product UI and sender activation remain separate approval phases.",
     "revocation": "Portal processes /stop, blocked bot and unlink; checks exact binding again before enqueue and send. FamilyQuest cancels the revoked SQL generation on eligibility denial.",
     "sender": "Portal continuous sender owns Telegram API ambiguity, retries and delivery lease; FamilyQuest only enqueues the stable familyquest-UUID event. deliveredToPortal is not Telegram receipt."
   },
@@ -56,7 +86,7 @@
     {
       "id": "signed-ui-acceptance",
       "approval": "Pending: owner authorizes real Telegram UI activation for controlled accounts, without delivery",
-      "prerequisites": ["Verified bot identity and Main Mini App", "Fresh scoped Portal incoming ready=true", "Product key installed and checked", "Fresh exclusive shared Telegram UI lease"],
+      "prerequisites": ["Verified bot identity and Main Mini App", "Exactly one managed Portal polling receiver; scoped incoming.mode=polling and incoming.ready=true", "Product key installed and checked", "Fresh exclusive shared Telegram UI lease"],
       "configureCommand": "python3 scripts/telegram-control.py enable-ui",
       "apply": "runtime.recreateAccessCommand",
       "expectedFlags": {"TELEGRAM_ENABLED": true, "TELEGRAM_OUTBOX_ENABLED": false},
