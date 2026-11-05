@@ -9,6 +9,7 @@ backend/tmp/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+scripts/browser/node_modules/
 
 # Local env
 .env

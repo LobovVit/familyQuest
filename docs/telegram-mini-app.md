@@ -331,7 +331,12 @@ opt-out при отказе Core/Portal, безопасная миграция 0
 Frontend-тесты покрывают явную привязку, выбор семьи/PIN, BackButton, тему, viewport,
 safe area, единственный exchange при повторном mount и обычный web route.
 
-Реальный Telegram (iOS, Android, Desktop, Web), third-party/partitioned cookies,
+Добавлена [изолированная HTTPS browser-регрессия](telegram-browser-regression.md)
+для настоящих Access/Core/PostgreSQL: блокировка сторонних cookies с отрицательным
+контролем, подписанный синтетический exchange, PIN/API/reload/logout и сохранение
+обычного OIDC-входа. Она выполняется в отдельном CI job `telegram-browser`.
+
+Реальный Telegram (iOS, Android, Desktop, Web), его third-party/partitioned cookies,
 BotFather, подписанное initData, общий живой Portal и реальная доставка **ещё не
 проверены для FamilyQuest**. Продуктовый бот «Семейные дела · Делодень» пока не
 подтверждён в production registry. Поэтому Mini App нельзя объявлять прошедшим

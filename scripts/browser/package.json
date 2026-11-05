@@ -1,0 +1,8 @@
+{
+  "name": "familyquest-browser-regression",
+  "private": true,
+  "description": "Isolated HTTPS browser regression; no production credentials or services",
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
