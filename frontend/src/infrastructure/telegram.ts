@@ -38,7 +38,13 @@ export function createTelegramHost():TelegramHost {
    return ()=>{events.forEach(event=>tg.offEvent(event,update));delete root.dataset.telegram;for(const key of ['bg','text','hint','button','button-text','panel','height','top','bottom','left','right'])root.style.removeProperty(`--mini-${key}`)}
   },
   back:action=>{const back=app()?.BackButton;if(!back)return ()=>{};if(!action){back.hide();return ()=>{}};back.show();back.onClick(action);return ()=>{back.offClick(action);back.hide()}},
-  requestWriteAccess:()=>new Promise(resolve=>{const tg=app();if(!tg?.requestWriteAccess){resolve(false);return};tg.requestWriteAccess(resolve)}),
+  requestWriteAccess:()=>new Promise(resolve=>{
+   const tg=app();if(!tg?.requestWriteAccess){resolve(false);return}
+   let settled=false
+   const finish=(granted:boolean)=>{if(settled)return;settled=true;clearTimeout(timer);resolve(granted===true)}
+   const timer=window.setTimeout(()=>finish(false),30000)
+   try{tg.requestWriteAccess(finish)}catch{finish(false)}
+  }),
  }
 }
 const post=(body:unknown)=>({method:'POST',body:JSON.stringify(body)})

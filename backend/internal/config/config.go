@@ -33,7 +33,7 @@ func Load() Config {
 		AccessSecret:  os.Getenv("ACCESS_SHARED_SECRET"),
 		SaaS:          os.Getenv("FAMILYQUEST_SAAS") == "1",
 		Migrate:       os.Getenv("FAMILYQUEST_SKIP_MIGRATIONS") != "1",
-		DatabaseURL:   getEnv("DATABASE_URL", "postgres://familyquest:familyquest@localhost:5433/familyquest?sslmode=disable"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		HTTPAddr:      getEnv("HTTP_ADDR", ":8081"),
 		CORSOrigin:    getEnv("CORS_ORIGIN", "*"),
 		SeedFile:      getEnv("FAMILYQUEST_SEED_FILE", ""),
@@ -43,6 +43,9 @@ func Load() Config {
 }
 
 func (c Config) Validate() error {
+	if c.SaaS && c.SeedFile != "" {
+		return errors.New("FAMILYQUEST_SEED_FILE must be empty in SaaS mode")
+	}
 	if c.RequireAccess && (!c.SaaS || c.Migrate || len(c.AccessSecret) < 32) {
 		return errors.New("private API requires SaaS, disabled migrations and ACCESS_SHARED_SECRET of at least 32 characters")
 	}

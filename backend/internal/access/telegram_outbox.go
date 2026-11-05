@@ -141,8 +141,16 @@ func (g *Gateway) dispatchNotification(ctx context.Context, family int64, job do
 	}
 	return nil
 }
-func (g *Gateway) RunTelegramOutbox(ctx context.Context, catalog NotificationFamilyCatalog) {
+func (g *Gateway) RunTelegramOutbox(ctx context.Context, catalog NotificationFamilyCatalog, report func(TelegramOutboxHeartbeat)) {
 	var after int64
+	lastError, cycleError := "starting", ""
+	heartbeat := func(state string) {
+		if report != nil {
+			report(TelegramOutboxHeartbeat{CheckedAt: time.Now().UTC(), State: state, ErrorCode: lastError})
+		}
+	}
+	heartbeat("starting")
+	defer heartbeat("stopped")
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -151,8 +159,11 @@ func (g *Gateway) RunTelegramOutbox(ctx context.Context, catalog NotificationFam
 			return
 		case <-timer.C:
 		}
-		ids, err := catalog.NotificationFamilies(ctx, after)
+		lookup, cancel := context.WithTimeout(ctx, 10*time.Second)
+		ids, err := catalog.NotificationFamilies(lookup, after)
+		cancel()
 		if err != nil {
+			lastError, cycleError = "catalog_unavailable", "catalog_unavailable"
 			log.Print("telegram outbox catalog unavailable")
 		} else {
 			for _, id := range ids {
@@ -163,14 +174,18 @@ func (g *Gateway) RunTelegramOutbox(ctx context.Context, catalog NotificationFam
 				_, err = g.DispatchTelegramNotifications(batch, id, 10)
 				cancel()
 				if err != nil {
+					lastError, cycleError = "core_dispatch_interrupted", "core_dispatch_interrupted"
 					log.Print("telegram outbox dispatch interrupted; durable work retained")
 				}
 				after = id
+				heartbeat("running")
 			}
 			if len(ids) < 50 {
 				after = 0
+				lastError, cycleError = cycleError, ""
 			}
 		}
+		heartbeat("running")
 		timer.Reset(5 * time.Second)
 	}
 }

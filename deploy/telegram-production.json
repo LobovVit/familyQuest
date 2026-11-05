@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "project": "familyQuest",
+  "productId": "familyquest",
+  "releaseVersion": "0.6.0",
+  "productionOrigin": "https://familyquest.lovit.tech",
+  "portalOrigin": "https://lovit.tech",
+  "bot": {
+    "requestedUsername": "deloden_family_bot",
+    "displayName": "Семейные дела · Делодень",
+    "mainMiniApp": "https://familyquest.lovit.tech/telegram",
+    "identityVerified": false,
+    "owner": "Root UI coordinator and Portal operator",
+    "credentialsDestination": "Portal protected bot registry only; never FamilyQuest"
+  },
+  "keyHandoff": {
+    "owner": "Portal operator",
+    "issuance": "Existing or exactly one newly issued product-scoped key through Portal's regular service-key API; no duplicate issuance",
+    "host": "10.66.66.6",
+    "path": "/opt/familyQuest/private/telegram-service-key",
+    "ownerUser": "lobov",
+    "mode": "0600",
+    "format": "Raw key and optional trailing newline",
+    "installCommand": "python3 scripts/telegram-control.py install-key",
+    "verification": "GET /v1/telegram/readiness returns HTTP 200 and exact scope=portal_telegram, productId=familyquest using this key",
+    "installationEffect": "Atomically update protected .env; keep both flags false; never replace a different existing key or issue another key"
+  },
+  "runtime": {
+    "workingDirectory": "/opt/familyQuest",
+    "composeFiles": ["docker-compose.prod.yml", "docker-compose.access.yml", "docker-compose.onboarding.yml"],
+    "recreateAccessCommand": "docker compose -p familyquest -f docker-compose.prod.yml -f docker-compose.access.yml -f docker-compose.onboarding.yml up -d --no-deps --wait --wait-timeout 150 access",
+    "worker": "In-process Access outbox, restart unless-stopped; durable PostgreSQL queue, 60-second leases, CAS settlement, capped retry delay, stable eventKey",
+    "workerStatusCommand": "docker exec familyquest-access-1 familyquest-telegram-status",
+    "workerStatusMeaning": "Private transport diagnostic, exit 0 only when flags, fresh worker heartbeat and scoped Portal readiness are green. Not proof of local queue health or product/mobile acceptance.",
+    "heartbeat": "/tmp/familyquest-telegram-outbox.json",
+    "heartbeatMaximumAgeSeconds": 45,
+    "queueStatusCommand": "printf '%s\\n' '{\"familyId\":1}' | docker compose -p familyquest -f docker-compose.prod.yml -f docker-compose.access.yml -f docker-compose.onboarding.yml exec -T provisioner familyquest-operator notification-status",
+    "migrations": ["011_notification_outbox.sql", "012_notification_bindings.sql"],
+    "newMigrationRequired": false,
+    "scaleConstraint": "One Access instance until ephemeral Telegram and persisted SSO session stores support shared state; SQL outbox leases do not make the entire gateway horizontally scalable"
+  },
+  "receiver": {
+    "owner": "Portal",
+    "requirement": "Versioned, supervised per-product polling or webhook receiver with durable cursor, deduplication and fresh identity/heartbeat. FamilyQuest must not run a second getUpdates receiver.",
+    "revocation": "Portal processes /stop, blocked bot and unlink; checks exact binding again before enqueue and send. FamilyQuest cancels the revoked SQL generation on eligibility denial.",
+    "sender": "Portal continuous sender owns Telegram API ambiguity, retries and delivery lease; FamilyQuest only enqueues the stable familyquest-UUID event. deliveredToPortal is not Telegram receipt."
+  },
+  "phases": [
+    {
+      "id": "prepare",
+      "approval": "Authorized implementation and disabled deployment",
+      "actions": ["Back up database/configuration and retain previous images", "Deploy CI-verified annotated release with flags false", "Install exactly one scoped key after protected handoff", "Verify public/Core/Access commit and health; run scoped readiness and SQL aggregates"],
+      "expectedFlags": {"TELEGRAM_ENABLED": false, "TELEGRAM_OUTBOX_ENABLED": false},
+      "exitCriteria": ["No private seed in build context", "SaaS onboarding has no preloaded family/task/reward data", "Scoped Portal check succeeds even if state is unconfigured/disabled; this is not production readiness"]
+    },
+    {
+      "id": "signed-ui-acceptance",
+      "approval": "Pending: owner authorizes real Telegram UI activation for controlled accounts, without delivery",
+      "prerequisites": ["Verified bot identity and Main Mini App", "Fresh scoped Portal incoming ready=true", "Product key installed and checked", "Fresh exclusive shared Telegram UI lease"],
+      "configureCommand": "python3 scripts/telegram-control.py enable-ui",
+      "apply": "runtime.recreateAccessCommand",
+      "expectedFlags": {"TELEGRAM_ENABLED": true, "TELEGRAM_OUTBOX_ENABLED": false},
+      "acceptance": ["Genuine signed initData and explicit issuer/subject binding", "Parent and child PIN/role/family boundaries; inactive subscription denies writes", "Real task completion and confirmation award once", "Denied Telegram write permission never saves opt-in", "BackButton, safe areas, phone layout, allowed deeplink hints", "Unlink and session expiry deny subsequent access", "Second controlled identity cannot read or modify the first family's data", "Remove only temporary acceptance data"],
+      "platforms": ["Telegram Desktop or Web", "Telegram iOS", "Telegram Android"],
+      "limitations": "Ordinary browser PIN acceptance and synthetic SDK tests are not substitutes for these real Telegram checks"
+    },
+    {
+      "id": "delivery-acceptance",
+      "approval": "Pending: owner authorizes the continuous outbox and one neutral notification to an explicitly consenting controlled adult; never children or arbitrary customers",
+      "prerequisites": ["Signed UI acceptance passed", "Portal exact product state=ready, ready=true, incoming/delivery ready; supervised continuous sender", "No unresolved failed/uncertain deliveries in either queue", "Current parental PIN, role, family access and explicit opt-in"],
+      "configureCommand": "python3 scripts/telegram-control.py enable-delivery",
+      "apply": "runtime.recreateAccessCommand",
+      "expectedFlags": {"TELEGRAM_ENABLED": true, "TELEGRAM_OUTBOX_ENABLED": true},
+      "acceptance": ["Close Mini App and let its real session expire, without shortening TTL or changing clocks", "After expiry complete one authorized task and verify one neutral Telegram notification with stable eventKey and no duplicate reward", "Verify /stop and unlink revoke delivery; new consent never replays the old cancelled generation", "Restart Access and verify durable consent/queue plus fresh heartbeat", "Remove temporary records and record observed Telegram result without credentials or personal child data"]
+    },
+    {
+      "id": "permanent-production",
+      "approval": "Pending: owner accepts the recorded UI, mobile, isolation, expiry and delivery results and authorizes permanent product delivery",
+      "prerequisites": ["Previous acceptance evidence is complete", "Portal stage production, linked delivery, verified real bot, fresh receiver/sender", "Monitoring and rollback owner assigned"],
+      "action": "Keep the approved true/true flags and supervised product transport; every future recipient still requires explicit consent and current family access"
+    }
+  ],
+  "monitoring": {
+    "intervalSeconds": 30,
+    "commands": ["runtime.workerStatusCommand", "runtime.queueStatusCommand for each family from the catalog"],
+    "alertOn": ["Enabled worker heartbeat absent/stopped/stale or catalog/Core error", "Portal state not ready, uncertain>0, recentFailed>0, oldestDueSeconds>300 or oldestSendingSeconds>30", "Local failed>0, oldest pending older than 5 minutes while worker enabled, growing retries or repeated configuration errors"],
+    "disabledMode": "Status exit 2 is expected when intentionally disabled; never convert disabled to healthy delivery. No automated activation."
+  },
+  "rollback": {
+    "triggers": ["Consent or family boundary failure", "Duplicate award/delivery", "Persistent errors or unknown delivery outcome"],
+    "steps": ["Immediately disable only FamilyQuest delivery in Portal to stop already-enqueued messages; preserve the receiver so /stop still works", "Run python3 scripts/telegram-control.py disable; it requires no Portal network access", "Run runtime.recreateAccessCommand and verify both runtime flags false", "Inspect local and Portal queues read-only; preserve IDs, leases, event keys and audit rows", "If code rollback is needed, use the retained pre-release image IDs and compose/config backup; do not roll back migration 011/012 or restore an older database over current data", "Reconcile uncertain deliveries before any later retry; do not create replacement event keys"],
+    "baselineCommit": "555376c3791ba4536bd71941a1b3a67b9aa557ec",
+    "backupLocation": "/opt/familyQuest-backups/telegram-production-20261105/",
+    "noDataDeletion": true
+  }
+}

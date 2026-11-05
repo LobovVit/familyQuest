@@ -184,6 +184,12 @@ func TestSelfRegistrationEndToEnd(t *testing.T) {
 	}
 	family := profiles[0].FamilyID
 	ids = append(ids, family)
+	for _, table := range []string{"chores", "assignments", "tasks", "confirmations", "rewards", "notification_recipients", "notification_outbox"} {
+		var count int
+		if err = root.pool.QueryRow(ctx, "select count(*) from "+schemaFor(family)+"."+table).Scan(&count); err != nil || count != 0 {
+			t.Fatal("onboarding inherited seeded data", table, count, err)
+		}
+	}
 	linked, owner, err := p.Identity(ctx, provider.Server.URL, "shared-person")
 	if err != nil || linked != family || owner != profiles[0].ID {
 		t.Fatal("identity binding", linked, owner, err)

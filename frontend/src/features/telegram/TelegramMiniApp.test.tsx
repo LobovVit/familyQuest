@@ -6,13 +6,16 @@ import type { Runtime } from '../../application/ports'
 import type { TelegramGateway, TelegramHost } from '../../application/telegram'
 import { TelegramMiniApp } from './TelegramMiniApp'
 import { telegramSection } from './navigation'
+vi.mock('../FamilyQuestWorkspace',()=>({FamilyQuestWorkspace:()=> <div>Рабочее пространство</div>}))
 afterEach(cleanup)
 const parent={id:7,familyId:12,name:'Взрослый',role:'parent',active:true} as const
 function setup(linked=true){
  const value={linked,families:[{id:12,name:'Моя семья'}],accountUrl:'https://portal.example/telegram',expiresAt:'2099-01-01T00:00:00Z'}
  const client={start:vi.fn().mockResolvedValue(value),state:vi.fn().mockResolvedValue(value),family:vi.fn().mockResolvedValue([parent]),profile:vi.fn().mockResolvedValue({participant:parent,token:'profile-only'}),claim:vi.fn().mockResolvedValue({}),consent:vi.fn(),logout:vi.fn()} satisfies TelegramGateway
- const host={available:()=>true,startParam:()=>'',mount:()=>()=>{},back:vi.fn().mockReturnValue(()=>{}),requestWriteAccess:vi.fn()} satisfies TelegramHost
- const runtime={gateway:{},session:{subscribe:()=>()=>{},getParticipant:()=>null,clearSession:vi.fn(),saveSession:vi.fn()}} as unknown as Runtime
+ const host={available:()=>true,startParam:()=>'',mount:()=>()=>{},back:vi.fn().mockReturnValue(()=>{}),requestWriteAccess:vi.fn().mockResolvedValue(true)} satisfies TelegramHost
+ let participant:typeof parent|null=null
+ const listeners=new Set<()=>void>()
+ const runtime={gateway:{},session:{subscribe:(fn:()=>void)=>{listeners.add(fn);return()=>listeners.delete(fn)},getParticipant:()=>participant,clearSession:vi.fn(()=>{participant=null;listeners.forEach(fn=>fn())}),saveSession:vi.fn(()=>{participant=parent;listeners.forEach(fn=>fn())})}} as unknown as Runtime
  render(<RuntimeContext.Provider value={runtime}><TelegramMiniApp client={client} host={host}/></RuntimeContext.Provider>)
  return {client,host,runtime}
 }
@@ -28,6 +31,21 @@ it('requires explicit family and profile PIN; a linked identity grants no parent
  fireEvent.click(screen.getByRole('button',{name:'Открыть профиль'}))
  await waitFor(()=>expect(client.profile).toHaveBeenCalledWith(7,'739281'))
  await waitFor(()=>expect(runtime.session.saveSession).toHaveBeenCalledWith({participant:parent,token:'profile-only'}))
+})
+it.each([false,true])('only saves consent after explicit SDK permission: %s',async granted=>{
+ const {client,host}=setup()
+ host.requestWriteAccess.mockResolvedValue(granted)
+ fireEvent.click(await screen.findByRole('button',{name:'Моя семья'}))
+ await screen.findByLabelText('Профиль')
+ fireEvent.change(screen.getByLabelText('Профиль'),{target:{value:'7'}})
+ fireEvent.change(screen.getByLabelText('PIN'),{target:{value:'739281'}})
+ fireEvent.click(screen.getByRole('button',{name:'Открыть профиль'}))
+ fireEvent.click(await screen.findByRole('button',{name:'Включить уведомления'}))
+ if(granted){await waitFor(()=>expect(client.consent).toHaveBeenCalledWith(true))}
+ else{
+  expect((await screen.findByRole('alert')).textContent).toBe('Разрешение Telegram на сообщения не получено. Уведомления не включены.')
+  expect(client.consent).not.toHaveBeenCalled()
+ }
 })
 it('does not auto-link after entering a code or create a family',async()=>{
  const {client}=setup(false)

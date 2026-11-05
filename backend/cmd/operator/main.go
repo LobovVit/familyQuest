@@ -1,4 +1,4 @@
-// Operator manages the pilot registry through stdin, never command-line secrets.
+// Operator manages the product registry through stdin, never command-line secrets.
 // Оператор управляет реестром пилота через stdin, без секретов в аргументах.
 package main
 

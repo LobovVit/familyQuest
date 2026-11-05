@@ -23,3 +23,8 @@ docker-compose.override.yml
 .access-proxy-enabled
 
 .self-registration-enabled
+
+# Local coordination reports and protected production handoffs
+/artifacts/
+/private/
+__pycache__/

@@ -93,12 +93,18 @@ func main() {
 		gateway.Telegram.Notifications = access.NewTelegramNotifications()
 	}
 	var outboxDone chan struct{}
+	reportOutbox := func(value access.TelegramOutboxHeartbeat) {
+		if err := access.WriteTelegramOutboxHeartbeat(access.TelegramOutboxHeartbeatPath, value); err != nil {
+			log.Print("telegram outbox heartbeat unavailable")
+		}
+	}
+	reportOutbox(access.TelegramOutboxHeartbeat{CheckedAt: time.Now().UTC(), State: "disabled"})
 	if os.Getenv("TELEGRAM_OUTBOX_ENABLED") == "true" {
 		if gateway.Telegram == nil || gateway.Telegram.Notifications == nil {
 			log.Fatal("Telegram outbox requires Telegram Access mode")
 		}
 		outboxDone = make(chan struct{})
-		go func() { defer close(outboxDone); gateway.RunTelegramOutbox(ctx, catalog) }()
+		go func() { defer close(outboxDone); gateway.RunTelegramOutbox(ctx, catalog, reportOutbox) }()
 	}
 	info := httpapi.VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, BuiltAt: buildinfo.BuiltAt, StartedAt: time.Now().UTC().Format(time.RFC3339)}
 	gateway.Version = &info

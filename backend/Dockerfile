@@ -14,6 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/familyquest-operator ./cmd/operato
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/lobov/familyquest/backend/internal/buildinfo.Version=${APP_VERSION} -X github.com/lobov/familyquest/backend/internal/buildinfo.Commit=${APP_COMMIT} -X github.com/lobov/familyquest/backend/internal/buildinfo.BuiltAt=${APP_BUILT_AT}" -o /bin/familyquest-access ./cmd/access
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/familyquest-provisioner ./cmd/provisioner
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/familyquest-telegram-status ./cmd/telegram-status
 
 FROM alpine:3.22
 
@@ -32,6 +33,7 @@ COPY --from=build /bin/familyquest-api /usr/local/bin/familyquest-api
 COPY --from=build /bin/familyquest-provisioner /usr/local/bin/familyquest-provisioner
 COPY --from=build /bin/familyquest-operator /usr/local/bin/familyquest-operator
 COPY --from=build /bin/familyquest-access /usr/local/bin/familyquest-access
+COPY --from=build /bin/familyquest-telegram-status /usr/local/bin/familyquest-telegram-status
 COPY --chown=familyquest:familyquest migrations ./migrations
 
 USER familyquest
