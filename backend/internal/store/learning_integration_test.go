@@ -99,7 +99,10 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	}
 	session := sessions[0]
 	_, values := session.Questions[0].Work(settings)
-	if _, err = s.AnswerMath(ctx, other.ID, session.ID, 0, values, time.Now()); !errors.Is(err, domain.ErrNotFound) {
+	// UTC and the family calendar deliberately fall on different days. A
+	// leaderboard query carries a calendar date, as the web client does.
+	answeredAt := time.Date(2026, 11, 5, 21, 30, 0, 0, time.UTC) // November 6 in Minsk
+	if _, err = s.AnswerMath(ctx, other.ID, session.ID, 0, values, answeredAt); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("foreign math", err)
 	}
 	var wg sync.WaitGroup
@@ -108,7 +111,7 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, e := s.AnswerMath(ctx, child.ID, session.ID, 0, values, time.Now())
+			_, e := s.AnswerMath(ctx, child.ID, session.ID, 0, values, answeredAt)
 			errs <- e
 		}()
 	}
@@ -123,7 +126,12 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	if err != nil || len(rewards) != 4 {
 		t.Fatal("duplicate math reward", rewards, err)
 	}
-	leaderboard, err := s.Leaderboard(ctx, "day", time.Now())
+	for _, reward := range rewards {
+		if reward.Source == "math" && reward.Date != "2026-11-06" {
+			t.Fatal("math reward must use the family calendar", reward.Date)
+		}
+	}
+	leaderboard, err := s.Leaderboard(ctx, "day", time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +148,7 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	if err != nil || !closed.Finished || closed.Question != nil {
 		t.Fatal("close session", err)
 	}
-	if _, err = s.AnswerMath(ctx, child.ID, session.ID, 1, values, time.Now()); !errors.Is(err, domain.ErrConflict) {
+	if _, err = s.AnswerMath(ctx, child.ID, session.ID, 1, values, answeredAt); !errors.Is(err, domain.ErrConflict) {
 		t.Fatal("closed session accepted answer", err)
 	}
 	backup, err := app.ExportBackup(ctx, p)
@@ -157,7 +165,7 @@ func TestLearningRewardsLifecycle(t *testing.T) {
 	if err != nil || len(restored) != 1 || len(restored[0].Answers) != 1 {
 		t.Fatal("math restore", err)
 	}
-	if _, err = s.AnswerMath(ctx, child.ID, session.ID, 0, values, time.Now()); err != nil {
+	if _, err = s.AnswerMath(ctx, child.ID, session.ID, 0, values, answeredAt); err != nil {
 		t.Fatal(err)
 	}
 	rewards, err = s.ActivityRewards(ctx, child.ID)
