@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,8 @@ import (
 const telegramCookie = "familyquest_telegram"
 
 type telegramSession struct {
+	// Set only after Portal verified this exact launch. Never retain raw initData.
+	InitDataDigest  [32]byte
 	Token           string
 	RecipientRef    string
 	Expires         time.Time
@@ -153,6 +156,31 @@ func (g *Gateway) telegram(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "Откройте приложение из Telegram")
 			return
 		}
+		digest := sha256.Sum256([]byte(in.InitData))
+		if id, existing, ok := t.get(r); ok {
+			if existing.InitDataDigest == digest {
+				// Reload may outlive initData's five-minute exchange window. Resume
+				// only this cookie's already verified launch, with fresh introspection.
+				p, err := t.validate(r.Context(), existing)
+				if err != nil {
+					t.remove(id)
+					t.cookie(w, "", -1)
+					telegramFail(w, err)
+					return
+				}
+				_, current, present := t.get(r)
+				if !present || current.Token != existing.Token || current.InitDataDigest != digest {
+					fail(w, 401, "Сессия Telegram завершена")
+					return
+				}
+				g.telegramState(w, r, current, p)
+				return
+			}
+			// A different launch/account must never fall back to the old context,
+			// even if the new one-use exchange is rejected.
+			t.remove(id)
+			t.cookie(w, "", -1)
+		}
 		var out telegramExchange
 		if e := t.Portal.Call(r.Context(), "exchange", map[string]string{"botId": "familyquest", "initData": in.InitData}, &out); e != nil {
 			telegramFail(w, e)
@@ -162,7 +190,7 @@ func (g *Gateway) telegram(w http.ResponseWriter, r *http.Request) {
 			telegramFail(w, errors.New("invalid exchange"))
 			return
 		}
-		s := telegramSession{Token: out.SessionToken, Expires: out.ExpiresAt}
+		s := telegramSession{Token: out.SessionToken, Expires: out.ExpiresAt, InitDataDigest: digest}
 		p, e := t.validate(r.Context(), s)
 		if e != nil {
 			telegramFail(w, e)

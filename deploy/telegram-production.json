@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "familyQuest",
   "productId": "familyquest",
-  "releaseVersion": "0.6.0",
+  "releaseVersion": "0.6.1",
   "productionOrigin": "https://familyquest.lovit.tech",
   "portalOrigin": "https://lovit.tech",
   "bot": {

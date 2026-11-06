@@ -118,9 +118,17 @@ const { chromium } = require('playwright');
     assert.equal(telegramCookie.sameSite, 'None');
     assert.equal(telegramCookie.path, '/api');
     assert.equal(telegramCookie.partitionKey, 'https://container.test');
-    expectStatus(await request(frame, '/api/telegram/exchange', { body: { initData: config.positiveInitData } }), 409, 'signed exchange replay');
+    expectStatus(await request(frame, '/api/telegram/exchange', { body: { initData: config.positiveInitData } }), 200, 'same-cookie verified launch resume');
     expectStatus(await request(frame, '/api/telegram/session'), 200, 'replay does not remove existing session');
-    record('signed_exchange_and_replay', { exchange: 200, replay: 409, sameSite: 'None', partitioned: true });
+    record('signed_exchange_and_replay', { exchange: 200, sameCookieResume: 200, sameSite: 'None', partitioned: true });
+
+    const replayContext = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' });
+    const replayPage = await replayContext.newPage();
+    const replayFrame = await embed(replayContext, replayPage, config.containerOrigin);
+    expectStatus(await request(replayFrame, '/api/telegram/exchange', { body: { initData: config.positiveInitData } }), 409, 'same launch without original cookie is still one-use');
+    expectStatus(await request(replayFrame, '/api/telegram/session'), 401, 'replay does not create another session');
+    await replayContext.close();
+    record('same_launch_without_cookie_replay_rejected');
 
     expectStatus(await request(frame, '/api/telegram/family', { body: { familyId: config.familyId } }), 200, 'choose family');
     const profile = expectStatus(await request(frame, '/api/telegram/profile', { body: { participantId: config.participantId, pin: '739281' } }), 200, 'Telegram profile PIN');
@@ -132,6 +140,8 @@ const { chromium } = require('playwright');
     frame = page.frames().find(frame => frame.url() === config.origin + '/telegram');
     await restrict(context, frame);
     expectStatus(await request(frame, '/api/telegram/session'), 200, 'Telegram session after reload');
+    expectStatus(await request(frame, '/api/telegram/exchange', { body: { initData: config.positiveInitData } }), 200, 'reload resumes exact verified launch');
+    expectStatus(await request(frame, '/api/telegram/profile', { body: { participantId: config.participantId, pin: '000000' } }), 401, 'resume does not bypass profile PIN');
     expectStatus(await request(frame, '/api/participants', { token: profile.token, method: 'GET' }), 200, 'Core API after reload');
     record('reload_retains_session_and_api_access');
 
