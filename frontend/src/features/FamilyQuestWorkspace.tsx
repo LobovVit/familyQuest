@@ -1,3 +1,4 @@
+import { DelodenAssistant } from './DelodenAssistant'
 import { FamilySubscription } from './subscription/FamilySubscription'
 import { LearningProfiles } from './settings/LearningProfiles'
 import { MyDay } from './today/MyDay'
@@ -479,7 +480,7 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, navigation}:{sso
     <main className="app-shell">
       <WorkspaceNavigation items={availableTabs} active={activeTab} onSelect={setActiveTab} />
       <div className="workspace-content">
-      <header className="workspace-toolbar"><div className="workspace-title"><p className="eyebrow">{currentParticipant ? 'Семейное пространство' : 'Общий прогресс семьи'}</p><h2>{availableTabs.find(tab => tab.id === activeTab)?.label ?? 'Планер'}</h2>{!currentParticipant && <small>{completedTasks}/{totalTasks} дел отмечено · {overallProgress}%</small>}</div>{currentParticipant?.role === 'parent' && <a href="https://lovit.tech/assistant?product=familyquest" target="_blank" rel="noopener noreferrer">Помощник Делодня ↗</a>}{renderPlanControls()}</header>
+      <DelodenAssistant key={currentParticipant?.id ?? 0} enabled={currentParticipant?.role === 'parent'} /><header className="workspace-toolbar"><div className="workspace-title"><p className="eyebrow">{currentParticipant ? 'Семейное пространство' : 'Общий прогресс семьи'}</p><h2>{availableTabs.find(tab => tab.id === activeTab)?.label ?? 'Планер'}</h2>{!currentParticipant && <small>{completedTasks}/{totalTasks} дел отмечено · {overallProgress}%</small>}</div>{currentParticipant?.role === 'parent' && <a href="https://lovit.tech/assistant?product=familyquest" target="_blank" rel="noopener noreferrer">Помощник Делодня ↗</a>}{renderPlanControls()}</header>
 
       {miniApp && currentParticipant?.role === 'parent' && activeTab === 'day' && <div className="mini-child-filter"><label>Дела ребёнка <select value={selectedChild} onChange={e=>setSelectedChild(e.target.value)}><option value="">Вся семья</option>{participants.filter(p=>p.role==='child'&&p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button onClick={()=>setActiveTab('catalog')}>Назначить дело</button><p>Оценка выполненного дела подтверждает его и начисляет предусмотренные звёзды.</p></div>}
       {error && <p className="notice">{error}</p>}
