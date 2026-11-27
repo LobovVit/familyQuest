@@ -14,6 +14,19 @@ describe('api client errors', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Карточка изменена' }), { status: 409 })))
     await expect(api('/api/family/1', { method: 'PUT', body: '{}' })).rejects.toBeInstanceOf(ConflictError)
   })
+  it('shows a retry message for an HTML timeout from the proxy', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: vi.fn().mockReturnValue(null) })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('<html><title>504 Gateway Time-out</title></html>', {
+        status: 504,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    ))
+    await expect(api('/api/account/profile')).rejects.toMatchObject({
+      status: 504,
+      message: 'Сервис временно недоступен. Повторите попытку.',
+    })
+  })
 })
 
 it('keeps the current profile when a Telegram profile-switch PIN fails', async () => {

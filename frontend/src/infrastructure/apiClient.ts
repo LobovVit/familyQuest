@@ -17,7 +17,9 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   if (!response.ok) {
     if (response.status === 401 && !path.startsWith('/api/session') && path !== '/api/account/login' && path !== '/api/telegram/profile' && token === getToken()) clearSession()
     const text = await response.text()
-    let message = text || `HTTP ${response.status}`
+    let message = response.status >= 500
+      ? 'Сервис временно недоступен. Повторите попытку.'
+      : text || `HTTP ${response.status}`
     try { const payload = JSON.parse(text) as { error?:unknown }; if (typeof payload.error === 'string') message = payload.error } catch { /* plain-text response */ }
     if (response.status === 409) throw new ConflictError(message)
     throw new ApiError(message, response.status)
