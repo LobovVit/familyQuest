@@ -7,3 +7,13 @@
 [data-telegram=dark] .telegram-app :is(.day-welcome,.day-task,.day-empty,.day-progress,.day-activity,.day-reward-link,.day-review,.navigation-item.is-current){background:var(--mini-panel,#202820);color:var(--mini-text,#e9ece9);border-color:var(--border)}
 [data-telegram=dark] .telegram-app :is(.day-welcome p:not(.eyebrow),.day-progress>span,.day-progress small,.day-task-step,.day-task small,.day-activity small){color:var(--mini-hint,#b3bdb5)}
 .telegram-app .pin-backdrop{padding:calc(16px + var(--mini-top,0px)) calc(16px + var(--mini-right,0px)) calc(16px + var(--mini-bottom,0px)) calc(16px + var(--mini-left,0px));overflow:auto}.telegram-app .pin-dialog{max-height:calc(var(--mini-height,100dvh) - var(--mini-top,0px) - var(--mini-bottom,0px) - 32px);overflow:auto}
+.mini-header a,
+.mini-entry a {
+  color: inherit;
+  text-underline-offset: .18em;
+}
+.mini-header a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
