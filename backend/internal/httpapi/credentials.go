@@ -1,8 +1,11 @@
 package httpapi
 
 import (
-	"github.com/lobov/familyquest/backend/internal/domain"
+	"net/http"
 	"strings"
+
+	"github.com/lobov/familyquest/backend/internal/application"
+	"github.com/lobov/familyquest/backend/internal/domain"
 )
 
 // Authorization header syntax belongs to the HTTP adapter, not the token signer.
@@ -12,4 +15,9 @@ func parseBearer(header string) (string, error) {
 		return "", domain.ErrUnauthorized
 	}
 	return fields[1], nil
+}
+
+func IsHelperRequest(r *http.Request) bool {
+	token, err := parseBearer(r.Header.Get("Authorization"))
+	return err == nil && strings.HasPrefix(token, application.HelperTokenPrefix)
 }

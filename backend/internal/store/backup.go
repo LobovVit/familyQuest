@@ -132,7 +132,7 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	if _, err := tx.Exec(ctx, `update notification_outbox set state='cancelled',error_code='backup_restore',lease_token=null,lease_until=null,settled_at=now() where state='pending'; delete from notification_recipients`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `truncate trusted_devices, math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants cascade`); err != nil {
+	if _, err := tx.Exec(ctx, `truncate helper_access, trusted_devices, math_sessions, activity_rewards, family_entries, reward_participants, rewards, behavior_ratings, confirmations, tasks, assignments, chores, participants cascade`); err != nil {
 		return err
 	}
 	for _, item := range backup.Participants {

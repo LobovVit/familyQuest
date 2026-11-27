@@ -1,3 +1,4 @@
+import { HelperAccessPanel } from './helper/HelperAccessPanel'
 import { DelodenAssistant } from './DelodenAssistant'
 import { FamilySubscription } from './subscription/FamilySubscription'
 import { LearningProfiles } from './settings/LearningProfiles'
@@ -41,7 +42,7 @@ type PinPrompt = {
 type ActiveTab = WorkspaceSection
 const tabs = workspaceSections
 
-export function FamilyQuestWorkspace({sso=false, miniApp=false, navigation}:{sso?:boolean;miniApp?:boolean;navigation?:{section:WorkspaceSection;setSection:(section:WorkspaceSection)=>void}}) {
+export function FamilyQuestWorkspace({sso=false, miniApp=false, saas=false, navigation}:{sso?:boolean;miniApp?:boolean;saas?:boolean;navigation?:{section:WorkspaceSection;setSection:(section:WorkspaceSection)=>void}}) {
  const { downloadBackup, restoreBackup } = useRuntime()
   const [selectedDate, setSelectedDate] = useState(() => localDate(new Date()))
   const [localTab, setLocalTab] = useState<ActiveTab>('today')
@@ -506,6 +507,7 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, navigation}:{sso
       {currentParticipant?.role === 'parent' && activeTab === 'users' && !!currentParticipant.familyId && <><FamilySubscription /><LearningProfiles participants={participants} /></>}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <MCPConnections key={currentParticipant.id} participants={participants} confirm={confirmation.ask} />}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Devices confirm={confirmation.ask} onCurrentRevoked={() => { void enterViewMode() }} />}
+      {saas && currentParticipant?.role === 'parent' && activeTab === 'users' && <HelperAccessPanel date={selectedDate} tasks={tasks} loading={isLoading} />}
       {currentParticipant?.role === 'parent' && activeTab === 'users' && <Settings participants={participants} tasks={tasks} rewards={rewards} pinEdit={pinEdit} setPinEdit={setPinEdit} newParticipant={newParticipant} setNewParticipant={setNewParticipant} newReward={newReward} setNewReward={setNewReward} backupBusy={isBackupBusy} onSavePin={saveParticipantPIN} onDeleteParticipant={deleteParticipant} onCreateParticipant={createParticipant} onExport={exportBackup} onImport={importBackup} onDeleteReward={deleteReward} onCreateReward={createReward} onToggleRewardParticipant={toggleRewardParticipant} />}
       </div>
     </main>

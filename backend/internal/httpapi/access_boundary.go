@@ -55,7 +55,7 @@ func AllowsExpiredRequest(method, route string) bool {
 	if method == http.MethodGet || method == http.MethodHead {
 		return true
 	}
-	if method == http.MethodDelete && strings.HasPrefix(route, "/api/mcp-grants/") && len(strings.Split(route, "/")) == 4 {
+	if method == http.MethodDelete && (strings.HasPrefix(route, "/api/mcp-grants/") || strings.HasPrefix(route, HelperAccessPath+"/")) && len(strings.Split(route, "/")) == 4 {
 		return true
 	}
 	if method != http.MethodPost {

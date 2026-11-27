@@ -1,3 +1,4 @@
+import type { HelperAccess, HelperAccessDraft, HelperTask } from '../domain/helper'
 import type { AccountEntry, FamilyRegistration } from '../domain/registration'
 import type { LearningProfile, LearningPolicy, FamilySubscription } from '../domain/subscription'
 import type { ReadingMode } from '../domain/reading'
@@ -9,6 +10,10 @@ import type { Assignment, BehaviorRating, Chore, ChoreDraft, LeaderboardEntry, L
 export type ParticipantDraft = { name: string; role: Participant['role']; pin: string }
 export type RewardDraft = { title: string; description: string; period: RewardPeriod; rewardType: RewardType; starCost: number; smileCost: number; participantIds: number[] }
 export interface FamilyQuestGateway {
+ helperAccess(): Promise<HelperAccess[]>
+ createHelperAccess(input: HelperAccessDraft): Promise<{access: HelperAccess; token: string}>
+ revokeHelperAccess(id: number): Promise<void>
+ helperTasks(token: string, signal: AbortSignal): Promise<HelperTask[]>
  mcpGrants(): Promise<import('../domain/mcp').MCPGrant[]>
  createMCPGrant(input: import('../domain/mcp').MCPGrantInput, proof: string): Promise<{grant: import('../domain/mcp').MCPGrant; token: string}>
  revokeMCPGrant(id: string): Promise<unknown>

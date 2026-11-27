@@ -63,6 +63,14 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Path == HelperTasksPath {
+		s.readHelperTasks(w, r)
+		return
+	}
+	if IsHelperRequest(r) {
+		respond(w, nil, domain.ErrForbidden)
+		return
+	}
 	if s.private && strings.HasPrefix(r.URL.Path, NotificationPath) {
 		s.notifications(w, r)
 		return
@@ -203,6 +211,7 @@ func (s *SaaS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.routes()
+	server.helperRoutes()
 	server.ServeHTTP(w, withPrincipal(r, p))
 }
 func (s *SaaS) accountLogin(w http.ResponseWriter, r *http.Request) {

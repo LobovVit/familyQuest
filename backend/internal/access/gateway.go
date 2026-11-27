@@ -119,6 +119,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Path == httpapi.HelperTasksPath {
+		g.proxy.ServeHTTP(w, r)
+		return
+	}
+	if httpapi.IsHelperRequest(r) {
+		fail(w, 403, "Недостаточно прав")
+		return
+	}
 	if g.SSO != nil && r.URL.Path == "/api/account/backchannel-logout" {
 		g.backchannel(w, r)
 		return

@@ -1,3 +1,4 @@
+import { HelperPage } from './pages/HelperPage'
 import { TelegramMiniApp } from './features/telegram/TelegramMiniApp'
 import { createTelegramGateway, createTelegramHost, isTelegramPage, loadTelegramSDK } from './infrastructure/telegram'
 import { SessionStartup } from './features/session/SessionStartup'
@@ -16,6 +17,10 @@ const runtime = { gateway, session, downloadBackup, restoreBackup }
 const lifecycle = createSessionLifecycle(gateway, session)
 
 async function mount() {
+ if (window.location.pathname === '/helper') {
+  createRoot(document.getElementById('root')!).render(<StrictMode><RuntimeContext.Provider value={runtime}><HelperPage /></RuntimeContext.Provider></StrictMode>)
+  return
+ }
  if (isTelegramPage()) {
   try { await loadTelegramSDK() } catch { /* The shell offers normal web entry. */ }
   const client = createTelegramGateway(), host = createTelegramHost()

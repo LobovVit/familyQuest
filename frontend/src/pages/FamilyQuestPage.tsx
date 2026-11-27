@@ -11,5 +11,5 @@ export function FamilyQuestPage() {
  useEffect(()=>{if(!config?.sso||!participant)return;const check=()=>{void gateway.participants().catch(()=>{})};window.addEventListener("focus",check);return()=>window.removeEventListener("focus",check)},[config?.sso,participant,gateway])
  if (!config) return <main className="account-entry"><p role="status">{error || 'Подключаемся…'}</p>{error && <button onClick={()=>setAttempt(v=>v+1)}>Повторить</button>}</main>
  if (config.saas && (!participant || (config.sso && new URLSearchParams(window.location.search).get('sso') === 'complete'))) return <><AccountLogin sso={config.sso} loginUrl={config.loginUrl} /><AboutVersion /></>
- return <><FamilyQuestWorkspace sso={config.sso} key={`${participant?.familyId ?? 0}:${participant?.id ?? 0}`} /><AboutVersion /></>
+ return <><FamilyQuestWorkspace saas={config.saas} sso={config.sso} key={`${participant?.familyId ?? 0}:${participant?.id ?? 0}`} /><AboutVersion /></>
 }

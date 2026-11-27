@@ -1,7 +1,7 @@
 import { clearSession, getToken } from './session'
 import { ConflictError } from '../application/errors'
 
-const API_URL = import.meta.env.VITE_API_URL ?? ''
+export const API_URL = import.meta.env.VITE_API_URL ?? ''
 export class ApiError extends Error {
   readonly status: number
   constructor(message:string, status:number) { super(message); this.status = status }

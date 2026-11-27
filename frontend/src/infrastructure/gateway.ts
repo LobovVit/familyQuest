@@ -1,9 +1,22 @@
 import type { FamilyQuestGateway } from '../application/ports'
-import { api, ApiError } from './apiClient'
+import { api, ApiError, API_URL } from './apiClient'
 
 const post = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) })
 let ssoCompletion: ReturnType<FamilyQuestGateway['ssoSession']> | undefined
 export const gateway: FamilyQuestGateway = {
+ helperAccess: () => api('/api/helper-access'),
+ createHelperAccess: input => api('/api/helper-access', post(input)),
+ revokeHelperAccess: id => api(`/api/helper-access/${id}`, {method: 'DELETE'}),
+ helperTasks: async (token, signal) => {
+  const response = await fetch(`${API_URL}/api/helper/tasks`, {
+   headers: {Authorization: `Bearer ${token}`},
+   credentials: 'omit',
+   cache: 'no-store',
+   signal,
+  })
+  if (!response.ok) throw new ApiError('Не удалось открыть дела помощника', response.status)
+  return response.json()
+ },
  mcpGrants: () => api('/api/mcp-grants'),
  createMCPGrant: (input, proof) => api('/api/mcp-grants', {...post(input), headers:{'X-FamilyQuest-Confirmation':proof}}),
  revokeMCPGrant: id => api(`/api/mcp-grants/${encodeURIComponent(id)}`, {method:'DELETE'}),
