@@ -8,7 +8,7 @@ const participant = { id: 3, name: 'Макс', role: 'child' as const, active: t
 const task = (id: number, status: Task['status'], owner = 3): Task => ({ id, participantId: owner, assignmentId: id, choreTitle: `Дело ${id}`, choreDescription: '', personName: 'Макс', dueDate: '2026-09-23', schedule: 'daily', timeWindow: 'morning', benefitType: 'self', executionMode: 'assigned', status, averageRating: 0, reward: 0 })
 it('counts only own completed work, keeps needs_work actionable and limits the first steps', () => {
  const onComplete = vi.fn(), onNavigate = vi.fn()
- render(<MyDay participant={participant} tasks={[task(1, 'completed'), task(2, 'needs_work'), task(3, 'pending'), task(4, 'pending'), task(5, 'pending'), task(6, 'confirmed', 1)]} assignments={[]} loading={false} busyTask={null} reviewCount={0} onComplete={onComplete} onNavigate={onNavigate} />)
+ render(<MyDay participant={participant} tasks={[task(1, 'completed'), task(2, 'needs_work'), task(3, 'pending'), task(4, 'pending'), task(5, 'pending'), task(6, 'confirmed', 1)]} assignments={[]} loading={false} loadError="" onRetry={vi.fn()} busyTask={null} reviewCount={0} onComplete={onComplete} onNavigate={onNavigate} />)
  expect(screen.getByText('1 из 5')).toBeTruthy()
  expect(screen.getByRole('progressbar').getAttribute('value')).toBe('20')
  expect(screen.getByText('Попробуем ещё раз')).toBeTruthy()
@@ -21,9 +21,20 @@ it('counts only own completed work, keeps needs_work actionable and limits the f
 })
 it('distinguishes pending confirmation from an earned reward and preserves parent navigation', () => {
  const onNavigate = vi.fn()
- render(<MyDay participant={{ ...participant, role: 'parent' }} tasks={[task(1, 'completed')]} assignments={[]} loading={false} busyTask={null} reviewCount={2} onComplete={vi.fn()} onNavigate={onNavigate} />)
+ render(<MyDay participant={{ ...participant, role: 'parent' }} tasks={[task(1, 'completed')]} assignments={[]} loading={false} loadError="" onRetry={vi.fn()} busyTask={null} reviewCount={2} onComplete={vi.fn()} onNavigate={onNavigate} />)
  expect(screen.getByText('Отметки сохранены. Звёзды за дела появятся после подтверждения.')).toBeTruthy()
  expect(screen.queryByText('Поиграем с числами')).toBeNull()
  fireEvent.click(screen.getByRole('button', { name: /Дела семьи ждут/ }))
  expect(onNavigate).toHaveBeenCalledWith('day')
+})
+
+it('offers a retry when task loading fails and shows the empty state only after a successful load', () => {
+ const onRetry = vi.fn()
+ const props = { participant, tasks: [], assignments: [], loading: false, busyTask: null, reviewCount: 0, onComplete: vi.fn(), onNavigate: vi.fn(), onRetry }
+ const view = render(<MyDay {...props} loadError="Не удалось загрузить дела" />)
+ expect(screen.queryByText('На сегодня дел пока нет')).toBeNull()
+ fireEvent.click(screen.getByRole('button', { name: 'Повторить загрузку дел' }))
+ expect(onRetry).toHaveBeenCalledOnce()
+ view.rerender(<MyDay {...props} loadError="" />)
+ expect(screen.getByText('На сегодня дел пока нет')).toBeTruthy()
 })

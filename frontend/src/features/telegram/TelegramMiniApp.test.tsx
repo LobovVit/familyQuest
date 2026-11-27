@@ -67,6 +67,7 @@ it('clears the profile selection when returning to families',async()=>{
  expect(runtime.session.clearSession).toHaveBeenCalled()
 })
 it('accepts only known navigation hints, never a family or arbitrary URL',()=>{
+ expect(telegramSection('')).toBe('today')
  expect(telegramSection('assign')).toBe('catalog')
  expect(telegramSection('review')).toBe('day')
  expect(telegramSection('family_99')).toBe('day')

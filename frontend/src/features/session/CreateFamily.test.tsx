@@ -28,7 +28,8 @@ it('restores onboarding without redirecting and opens profile selection after cr
  await screen.findByLabelText('Семейный профиль')
  expect(registerFamily).toHaveBeenCalledWith({ name: 'Соколовы', parentName: 'Анна', pin: '739281' })
  expect(screen.queryByLabelText('Название семьи')).toBeNull()
- expect(screen.getByText('Семья создана. Выберите свой профиль и введите PIN.')).toBeTruthy()
+ expect(screen.getByText('Семья создана. Введите PIN родителя, чтобы открыть семейное пространство.')).toBeTruthy()
+ expect((screen.getByLabelText('Семейный профиль') as HTMLSelectElement).value).toBe('1')
  expect((screen.getByRole('button', { name: 'Открыть профиль' }) as HTMLButtonElement).disabled).toBe(true)
 })
 it('rejects mismatched PIN confirmation before submitting', async () => {

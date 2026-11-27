@@ -165,9 +165,9 @@ func (s *Store) ImportBackup(ctx context.Context, backup BackupData) error {
 	}
 	for _, item := range backup.Chores {
 		if _, err := tx.Exec(ctx, `
-			insert into chores (id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at)
-			overriding system value values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, item.ID, item.Title, item.Description, item.Schedule, item.TimeWindow, item.BenefitType, item.ExecutionMode, item.BaseValue, item.Active, item.CreatedAt); err != nil {
+			insert into chores (id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at, once_date)
+			overriding system value values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, '')::date)
+		`, item.ID, item.Title, item.Description, item.Schedule, item.TimeWindow, item.BenefitType, item.ExecutionMode, item.BaseValue, item.Active, item.CreatedAt, item.OnceDate); err != nil {
 			return err
 		}
 	}
@@ -334,9 +334,9 @@ func scanBackupRows(ctx context.Context, query func(context.Context, string, ...
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, query, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at from chores order by id`, func(rows pgx.Rows) error {
+	if err := scanRows(ctx, query, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at, coalesce(once_date::text, '') from chores order by id`, func(rows pgx.Rows) error {
 		var item BackupChore
-		if err := rows.Scan(&item.ID, &item.Title, &item.Description, &item.Schedule, &item.TimeWindow, &item.BenefitType, &item.ExecutionMode, &item.BaseValue, &item.Active, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Title, &item.Description, &item.Schedule, &item.TimeWindow, &item.BenefitType, &item.ExecutionMode, &item.BaseValue, &item.Active, &item.CreatedAt, &item.OnceDate); err != nil {
 			return err
 		}
 		backup.Chores = append(backup.Chores, item)

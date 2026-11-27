@@ -14,6 +14,8 @@ export function useFamilyQuestData(selectedDate: string, participant: Participan
  const [monthLeaderboard, setMonthLeaderboard] = useState<LeaderboardEntry[]>([])
  const [behaviorRatings, setBehaviorRatings] = useState<BehaviorRating[]>([])
  const [isLoading, setIsLoading] = useState(true)
+ const [participantsReady, setParticipantsReady] = useState(false)
+ const [participantsError, setParticipantsError] = useState('')
  const [loadError, setLoadError] = useState('')
  const activeDate = useRef(selectedDate)
  const generation = useRef(0)
@@ -25,11 +27,18 @@ export function useFamilyQuestData(selectedDate: string, participant: Participan
   const request = ++participantGeneration.current
   try {
    const values = await gateway.participants()
-   if (request === participantGeneration.current && session.getParticipant() === participant) setParticipants(values)
+   if (request === participantGeneration.current && session.getParticipant() === participant) {
+    setParticipants(values)
+    setParticipantsError('')
+    setParticipantsReady(true)
+   }
   } catch (error) {
-   if (request === participantGeneration.current) setLoadError(error instanceof Error ? error.message : 'Не удалось загрузить участников')
+   if (request === participantGeneration.current && session.getParticipant() === participant) setParticipantsError(error instanceof Error ? error.message : 'Не удалось загрузить участников')
   }
  }, [gateway, session, participant])
+ const addParticipant = (profile: Participant) => {
+  if (session.getParticipant() === participant) setParticipants(current => current.some(p => p.id === profile.id) ? current : [...current, profile])
+ }
  const refresh = useCallback(async () => {
   // Old mutation callbacks must not invalidate or reload the new view.
   if (session.getParticipant() !== participant || activeDate.current !== selectedDate) return
@@ -56,6 +65,8 @@ export function useFamilyQuestData(selectedDate: string, participant: Participan
  const invalidateData = useCallback(() => { ++generation.current }, [])
  useEffect(() => {
   setParticipants([])
+  setParticipantsReady(false)
+  setParticipantsError('')
   void loadParticipants()
   return invalidateParticipants
  }, [loadParticipants, invalidateParticipants])
@@ -66,5 +77,5 @@ export function useFamilyQuestData(selectedDate: string, participant: Participan
   return invalidateData
  }, [refresh, clearProtected, invalidateData, selectedDate])
  return { participants, chores, assignments, rewards, tasks, dayLeaderboard, weekLeaderboard, monthLeaderboard,
-  behaviorRatings, isLoading, loadError, refresh, loadParticipants }
+  behaviorRatings, isLoading, loadError, participantsReady, participantsError, refresh, loadParticipants, addParticipant }
 }

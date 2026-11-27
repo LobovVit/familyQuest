@@ -70,6 +70,7 @@ type Chore struct {
 	Title            string    `json:"title"`
 	Description      string    `json:"description"`
 	Schedule         string    `json:"schedule"`
+	OnceDate         string    `json:"onceDate,omitempty"`
 	TimeWindow       string    `json:"timeWindow"`
 	BenefitType      string    `json:"benefitType"`
 	ExecutionMode    string    `json:"executionMode"`

@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 func ValidateRating(rating int) error {
 	if rating < 1 || rating > 5 {
@@ -20,7 +23,21 @@ func NormalizeChore(c Chore) (Chore, error) {
 	if c.Title == "" || c.BaseValue <= 0 || !oneOf(c.Schedule, "once", "daily", "weekly", "monthly") || !oneOf(c.TimeWindow, "", "morning", "day", "evening") || !oneOf(c.BenefitType, "self", "family", "care", "home") || !oneOf(c.ExecutionMode, "assigned", "together", "adult_child", "anyone") || !validIDs(c.ParticipantIDs) {
 		return c, ErrInvalidInput
 	}
+	if err := ValidateOnceDate(c.Schedule, c.OnceDate); err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+func ValidateOnceDate(schedule, date string) error {
+	if date == "" {
+		return nil
+	}
+	value, err := time.Parse(time.DateOnly, date)
+	if schedule != "once" || err != nil || value.Year() < 2000 || value.Year() > 2100 || value.Format(time.DateOnly) != date {
+		return ErrInvalidInput
+	}
+	return nil
 }
 
 func NormalizeReward(r Reward) (Reward, error) {

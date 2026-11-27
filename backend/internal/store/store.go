@@ -292,7 +292,7 @@ func (s *Store) TaskOwner(ctx context.Context, taskID int64) (int64, error) {
 }
 
 func (s *Store) ListChores(ctx context.Context) ([]Chore, error) {
-	rows, err := s.db.Query(ctx, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at from chores where active = true order by id`)
+	rows, err := s.db.Query(ctx, `select id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at, coalesce(once_date::text, '') from chores where active = true order by id`)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (s *Store) ListChores(ctx context.Context) ([]Chore, error) {
 	chores := make([]Chore, 0)
 	for rows.Next() {
 		var c Chore
-		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Schedule, &c.TimeWindow, &c.BenefitType, &c.ExecutionMode, &c.BaseValue, &c.Active, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Schedule, &c.TimeWindow, &c.BenefitType, &c.ExecutionMode, &c.BaseValue, &c.Active, &c.CreatedAt, &c.OnceDate); err != nil {
 			return nil, err
 		}
 		chores = append(chores, c)
@@ -330,11 +330,11 @@ func (s *Store) CreateChore(ctx context.Context, chore Chore) (Chore, error) {
 	defer tx.Rollback(ctx)
 
 	err = tx.QueryRow(ctx, `
-		insert into chores (title, description, schedule, time_window, benefit_type, execution_mode, base_value)
-		values ($1, $2, $3, $4, $5, $6, $7)
-		returning id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at
-	`, chore.Title, chore.Description, chore.Schedule, chore.TimeWindow, chore.BenefitType, chore.ExecutionMode, chore.BaseValue).
-		Scan(&chore.ID, &chore.Title, &chore.Description, &chore.Schedule, &chore.TimeWindow, &chore.BenefitType, &chore.ExecutionMode, &chore.BaseValue, &chore.Active, &chore.CreatedAt)
+		insert into chores (title, description, schedule, time_window, benefit_type, execution_mode, base_value, once_date)
+		values ($1, $2, $3, $4, $5, $6, $7, nullif($8, '')::date)
+		returning id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at, coalesce(once_date::text, '')
+	`, chore.Title, chore.Description, chore.Schedule, chore.TimeWindow, chore.BenefitType, chore.ExecutionMode, chore.BaseValue, chore.OnceDate).
+		Scan(&chore.ID, &chore.Title, &chore.Description, &chore.Schedule, &chore.TimeWindow, &chore.BenefitType, &chore.ExecutionMode, &chore.BaseValue, &chore.Active, &chore.CreatedAt, &chore.OnceDate)
 	if err != nil {
 		return chore, err
 	}
@@ -372,15 +372,16 @@ func (s *Store) UpdateChore(ctx context.Context, chore Chore) (Chore, error) {
 		set title = $2,
 		    description = $3,
 		    schedule = $4,
+		    once_date = case when $4 = 'once' then once_date else null end,
 		    time_window = $5,
 		    benefit_type = $6,
 		    execution_mode = $7,
 		    base_value = $8,
 		    active = true
 		where id = $1
-		returning id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at
+		returning id, title, description, schedule, time_window, benefit_type, execution_mode, base_value, active, created_at, coalesce(once_date::text, '')
 	`, chore.ID, chore.Title, chore.Description, chore.Schedule, chore.TimeWindow, chore.BenefitType, chore.ExecutionMode, chore.BaseValue).
-		Scan(&chore.ID, &chore.Title, &chore.Description, &chore.Schedule, &chore.TimeWindow, &chore.BenefitType, &chore.ExecutionMode, &chore.BaseValue, &chore.Active, &chore.CreatedAt)
+		Scan(&chore.ID, &chore.Title, &chore.Description, &chore.Schedule, &chore.TimeWindow, &chore.BenefitType, &chore.ExecutionMode, &chore.BaseValue, &chore.Active, &chore.CreatedAt, &chore.OnceDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Chore{}, ErrNotFound
 	}
@@ -529,7 +530,7 @@ func (s *Store) EnsureTasksForDate(ctx context.Context, dueDate time.Time) error
 		insert into tasks (assignment_id, due_date)
 		select a.id,
 		       case
-		         when c.schedule = 'once' then a.created_at::date
+		         when c.schedule = 'once' then coalesce(c.once_date, a.created_at::date)
  when c.schedule = 'weekly' then $2::date
 		         when c.schedule = 'monthly' then $3::date
 		         else $1::date
@@ -563,7 +564,7 @@ func (s *Store) ListTasks(ctx context.Context, dueDate time.Time) ([]Task, error
 		join participants p on p.id = a.participant_id
 		left join confirmations conf on conf.task_id = t.id
 		where (
-		    (c.schedule = 'once' and t.due_date <= $1::date and t.status in ('pending', 'needs_work', 'completed'))
+		    (c.schedule = 'once' and ((t.due_date <= $1::date and t.status in ('pending', 'needs_work', 'completed')) or (c.once_date is not null and t.due_date = $1::date)))
  or (c.schedule = 'daily' and t.due_date = $1::date)
 		    or (c.schedule = 'weekly' and t.due_date = $2::date and t.status in ('pending', 'needs_work', 'completed'))
 		    or (c.schedule = 'monthly' and t.due_date = $3::date and t.status in ('pending', 'needs_work', 'completed'))
@@ -835,7 +836,7 @@ func (s *Store) Leaderboard(ctx context.Context, period string, at time.Time) ([
 			  and a.active = true
 			  and (
 				c.schedule = 'daily'
- or (c.schedule = 'once' and days.day::date = a.created_at::date)
+ or (c.schedule = 'once' and days.day::date = coalesce(c.once_date, a.created_at::date))
 				or (c.schedule = 'weekly' and extract(isodow from days.day) = 1)
 				or (c.schedule = 'monthly' and extract(day from days.day) = 1)
 			  )

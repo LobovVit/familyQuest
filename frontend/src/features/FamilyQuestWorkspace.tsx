@@ -2,6 +2,7 @@ import { HelperAccessPanel } from './helper/HelperAccessPanel'
 import { DelodenAssistant } from './DelodenAssistant'
 import { FamilySubscription } from './subscription/FamilySubscription'
 import { LearningProfiles } from './settings/LearningProfiles'
+import { FirstFamilyTask } from './today/FirstFamilyTask'
 import { MyDay } from './today/MyDay'
 import { WorkspaceNavigation } from './navigation/WorkspaceNavigation'
 import { workspaceSections, type WorkspaceSection } from './navigation/sections'
@@ -73,10 +74,13 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, saas=false, navi
     participantIds: [] as number[],
   })
 
-  const data = useFamilyQuestData(selectedDate, currentParticipant)
+  const today = localDate(new Date())
+  const isMyDay = activeTab === 'today'
+  const data = useFamilyQuestData(isMyDay ? today : selectedDate, currentParticipant)
+  const childrenProfiles = data.participants.filter(profile => profile.active && profile.role === 'child')
   const { participants, chores, assignments, rewards, tasks, dayLeaderboard, weekLeaderboard, monthLeaderboard, behaviorRatings, isLoading } = data
   const actions = useFamilyQuestActions(data.refresh)
-  useEffect(() => { if (data.loadError) setError(data.loadError) }, [data.loadError])
+
 
   const availableTabs = useMemo(() => {
     return tabs.filter((tab) => (tab.id !== 'today' || currentParticipant?.role === 'child' || currentParticipant?.role === 'parent') && (!['math', 'reading'].includes(tab.id) || currentParticipant?.role === 'child') && (!['family', 'sport', 'earned'].includes(tab.id) || currentParticipant?.role === 'parent' || currentParticipant?.role === 'child') && (!tab.adultsOnly || currentParticipant?.role === 'parent'))
@@ -147,6 +151,7 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, saas=false, navi
     try {
       const session = await actions.login(pinPrompt.participant.id, pinPrompt.pin, loginOptions)
       establishSession(session)
+      setSelectedDate(localDate(new Date()))
       setActiveTab(session.participant.role === 'school' ? 'day' : 'today')
       setPinPrompt(null)
       setLoginOptions({remember:false,deviceName:''})
@@ -460,7 +465,7 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, saas=false, navi
   function renderPlanControls() {
     return (
       <>
-        <div className="date-card">
+        {!isMyDay && <div className="date-card">
           <div className="date-stepper" aria-label="Выбор даты плана">
             <button aria-label="Предыдущий день" className="date-arrow" type="button" onClick={() => shiftSelectedDate(-1)}>
               ‹
@@ -471,7 +476,7 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, saas=false, navi
             </button>
           </div>
           <button className="today-shortcut" disabled={selectedDate === localDate(new Date())} onClick={() => setSelectedDate(localDate(new Date()))}>Сегодня</button>
-        </div>
+        </div>}
         <UserMenu sso={sso} current={currentParticipant} participants={participants} open={isUserMenuOpen} onToggle={() => setIsUserMenuOpen(value => !value)} onView={enterViewMode} onSelect={askForParticipant} />
       </>
     )
@@ -484,7 +489,24 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, saas=false, navi
       <DelodenAssistant key={currentParticipant?.id ?? 0} enabled={currentParticipant?.role === 'parent'} /><header className="workspace-toolbar"><div className="workspace-title"><p className="eyebrow">{currentParticipant ? 'Семейное пространство' : 'Общий прогресс семьи'}</p><h2>{availableTabs.find(tab => tab.id === activeTab)?.label ?? 'Планер'}</h2>{!currentParticipant && <small>{completedTasks}/{totalTasks} дел отмечено · {overallProgress}%</small>}</div>{currentParticipant?.role === 'parent' && <a href="https://lovit.tech/assistant?product=familyquest" target="_blank" rel="noopener noreferrer">Помощник Делодня ↗</a>}{renderPlanControls()}</header>
 
       {miniApp && currentParticipant?.role === 'parent' && activeTab === 'day' && <div className="mini-child-filter"><label>Дела ребёнка <select value={selectedChild} onChange={e=>setSelectedChild(e.target.value)}><option value="">Вся семья</option>{participants.filter(p=>p.role==='child'&&p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button onClick={()=>setActiveTab('catalog')}>Назначить дело</button><p>Оценка выполненного дела подтверждает его и начисляет предусмотренные звёзды.</p></div>}
-      {error && <p className="notice">{error}</p>}
+      {(error || data.participantsError || (!isMyDay && data.loadError)) && <p className="notice" role="alert">{error || data.participantsError || data.loadError}</p>}
+      {!isMyDay && data.loadError && <button type="button" onClick={() => void data.refresh()}>Повторить загрузку дел</button>}
+      {data.participantsError && <button type="button" onClick={() => void data.loadParticipants()}>Повторить загрузку профилей</button>}
+      {currentParticipant?.role === 'parent' && !!currentParticipant.familyId && <FirstFamilyTask
+        key={currentParticipant.id}
+        childrenProfiles={childrenProfiles}
+        assignments={assignments}
+        ready={data.participantsReady && !data.participantsError && !isLoading && !data.loadError}
+        visible={isMyDay}
+        onAddChild={async (name, pin) => {
+          const profile = await actions.createParticipant({ name, pin, role: 'child' })
+          data.addParticipant(profile)
+          return profile
+        }}
+        onAssign={draft => actions.saveChore('new', draft)}
+        onOpenProfile={askForParticipant}
+        onSettings={() => setActiveTab('users')}
+      />}
 
       {<ParentConfirmation confirmation={confirmation} />}
       {pinPrompt && <PinDialog allowRemember={!miniApp} participants={participants} options={loginOptions} onOptions={setLoginOptions} error={error} participant={pinPrompt.participant} pin={pinPrompt.pin} busy={isCheckingPin} onPin={pin => setPinPrompt({...pinPrompt,pin})} onCancel={() => setPinPrompt(null)} onSubmit={verifyPin} />}
@@ -493,7 +515,10 @@ export function FamilyQuestWorkspace({sso=false, miniApp=false, saas=false, navi
 
       {!currentParticipant && activeTab === 'day' && <FamilyOverview date={selectedDate} participants={participants} />}
 
-      {activeTab === 'today' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <MyDay participant={currentParticipant} tasks={tasks} assignments={assignments} summary={dayLeaderboard.find(entry => entry.participantId === currentParticipant.id)} loading={isLoading} busyTask={busyTask} reviewCount={tasksForReview.length} onComplete={completeTask} onNavigate={setActiveTab} />}
+      {activeTab === 'today' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <MyDay participant={currentParticipant} tasks={tasks} assignments={assignments} summary={dayLeaderboard.find(entry => entry.participantId === currentParticipant.id)} loading={isLoading} loadError={data.loadError} onRetry={() => void data.refresh()} busyTask={busyTask} reviewCount={tasksForReview.length} onComplete={completeTask} onNavigate={section => {
+        if (section === 'day') setSelectedDate(today)
+        setActiveTab(section)
+      }} />}
       {activeTab === 'reading' && currentParticipant?.role === 'child' && <ReadingTraining useAgePolicy={!!currentParticipant.familyId} key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
       {activeTab === 'math' && currentParticipant?.role === 'child' && <MathTraining useAgePolicy={!!currentParticipant.familyId} key={currentParticipant.id} onReward={() => { void data.refresh() }} />}
       {activeTab === 'earned' && currentParticipant && ['parent', 'child'].includes(currentParticipant.role) && <ActivityRewards key={currentParticipant.id} />}

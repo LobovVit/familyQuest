@@ -59,7 +59,7 @@ export interface FamilyQuestGateway {
  completeTask(id: number): Promise<unknown>
  confirmTask(id: number, rating: number): Promise<unknown>
  rateBehavior(date: string, target: number, rating: number): Promise<BehaviorRating>
- createParticipant(input: ParticipantDraft): Promise<unknown>
+ createParticipant(input: ParticipantDraft): Promise<Participant>
  deleteParticipant(id: number): Promise<unknown>
  changePin(id: number, pin: string, proof?: string): Promise<unknown>
  createReward(input: RewardDraft): Promise<unknown>

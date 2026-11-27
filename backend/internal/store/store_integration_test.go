@@ -141,6 +141,37 @@ func TestPostgresWorkflows(t *testing.T) {
 			}
 		})
 	}
+	// Mimic a client whose local calendar already shows the next UTC day.
+	onceDay := time.Now().UTC().AddDate(0, 0, 1)
+	onceChore, err := s.CreateChore(ctx, domain.Chore{
+		Title: "One-off on the client calendar", Schedule: "once", OnceDate: onceDay.Format(time.DateOnly),
+		BaseValue: 20, ParticipantIDs: []int64{child.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTasks, err := s.ListTasks(ctx, onceDay.AddDate(0, 0, -1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range previousTasks {
+		if task.ChoreID == onceChore.ID {
+			t.Fatal("dated task appeared a day early")
+		}
+	}
+	tasks, err := s.ListTasks(ctx, onceDay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches := 0
+	for _, task := range tasks {
+		if task.ChoreID == onceChore.ID && task.DueDate == onceChore.OnceDate && task.ParticipantID == child.ID {
+			matches++
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("expected one dated task for the child, got %d", matches)
+	}
 	backup, err := s.ExportBackup(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +182,19 @@ func TestPostgresWorkflows(t *testing.T) {
 	}
 	if err := s.ImportBackup(ctx, backup); err != nil {
 		t.Fatal(err)
+	}
+	restoredChores, err := s.ListChores(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredOnceDate := ""
+	for _, chore := range restoredChores {
+		if chore.ID == onceChore.ID {
+			restoredOnceDate = chore.OnceDate
+		}
+	}
+	if restoredOnceDate != onceChore.OnceDate {
+		t.Fatalf("backup lost once date: %q", restoredOnceDate)
 	}
 	if _, err := s.VerifyParticipantPIN(ctx, child.ID, "391827"); err != nil {
 		t.Fatalf("restore lost PIN: %v", err)

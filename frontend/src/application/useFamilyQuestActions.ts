@@ -6,7 +6,11 @@ import { useRuntime } from './runtime'
 export function useFamilyQuestActions(refresh: () => Promise<void>) {
  const { gateway } = useRuntime()
  return useMemo(() => {
-  const reload = async (operation: Promise<unknown>) => { await operation; await refresh() }
+  const reload = async <T,>(operation: Promise<T>) => {
+   const result = await operation
+   await refresh()
+   return result
+  }
   return {
    login: gateway.login,
    saveChore: (id: number | 'new', draft: ChoreDraft) => reload(gateway.saveChore(id, draft)),

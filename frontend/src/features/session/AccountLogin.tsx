@@ -37,8 +37,8 @@ export function AccountLogin({ sso = false, loginUrl = '' }: { sso?: boolean; lo
   <p>Один аккаунт для всех подключённых сервисов. Подписка на каждый сервис оформляется отдельно.</p>
   {error && <p role="alert">{error}</p>}
   {!loginUrl && !profiles && !onboarding && !busy && <label className="remember-choice"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Запомнить это устройство на 30 дней</label>}
-  {onboarding && <CreateFamily onCreated={result => { setProfiles(result); setOnboarding(false); setCreated(true); setError('') }} />}
-  {created && <p role="status">Семья создана. Выберите свой профиль и введите PIN.</p>}
+  {onboarding && <CreateFamily onCreated={result => { setProfiles(result); setSelected(String(result.find(profile => profile.active && profile.role === 'parent')?.id ?? '')); setOnboarding(false); setCreated(true); setError('') }} />}
+  {created && <p role="status">Семья создана. Введите PIN родителя, чтобы открыть семейное пространство.</p>}
   {profiles && <form className="stack-form" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{login(await gateway.selectAccountProfile(Number(selected),pin))}catch(e){setError(e instanceof Error?e.message:'Не удалось войти')}finally{setPin('');setBusy(false)}}}>
    <label>Семейный профиль<select value={selected} onChange={e=>{setSelected(e.target.value);setPin('')}} required><option value="">Выберите профиль</option>{profiles.filter(p=>p.active).map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
    <label>PIN профиля<input type="password" inputMode="numeric" autoComplete="off" value={pin} maxLength={6} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,6))}/></label>

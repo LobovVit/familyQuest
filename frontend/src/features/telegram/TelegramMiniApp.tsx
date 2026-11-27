@@ -30,9 +30,9 @@ export function TelegramMiniApp({client,host}:{client:TelegramGateway;host:Teleg
  const previousParticipant=useRef(participant)
  useEffect(()=>{const previous=previousParticipant.current;previousParticipant.current=participant;if(previous&&!participant){setProfiles(null);void refresh()}},[participant,refresh])
  const chooseFamily=useCallback(async(id:number)=>{
-  setBusy(true);setError('');setProfiles(null);setSelected('');setPin('');session.clearSession()
+  setBusy(true);setError('');setSection(telegramSection(host.startParam()));setProfiles(null);setSelected('');setPin('');session.clearSession()
   try{const result=await client.family(id);if(Array.isArray(result))setProfiles(result);else setState(result)}catch(e){setError(e instanceof Error?e.message:'Семья недоступна')}finally{setBusy(false)}
- },[client,session])
+ },[client,session,host])
  const back=useCallback(()=>{if(participant&&section!=='day')setSection('day');else void chooseFamily(0)},[participant,section,chooseFamily])
  useEffect(()=>host.back(participant||profiles?back:null),[host,participant,profiles,back])
  async function act(action:()=>Promise<unknown>,message=''){

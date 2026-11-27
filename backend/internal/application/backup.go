@@ -38,6 +38,7 @@ type BackupChore struct {
 	Title         string    `json:"title"`
 	Description   string    `json:"description"`
 	Schedule      string    `json:"schedule"`
+	OnceDate      string    `json:"onceDate,omitempty"`
 	TimeWindow    string    `json:"timeWindow"`
 	BenefitType   string    `json:"benefitType"`
 	ExecutionMode string    `json:"executionMode"`
@@ -123,6 +124,11 @@ func (b BackupData) Validate() error {
 	}
 	if !hasParent {
 		return fmt.Errorf("%w: backup requires an active parent", domain.ErrInvalidInput)
+	}
+	for _, chore := range b.Chores {
+		if err := domain.ValidateOnceDate(chore.Schedule, chore.OnceDate); err != nil {
+			return err
+		}
 	}
 	if err := b.validateFamily(); err != nil {
 		return err

@@ -94,3 +94,12 @@
  .workspace-content .users-grid { grid-template-columns: minmax(0, 1fr); }
  .workspace-content .users-grid > * { min-width: 0; grid-column: 1; }
 }
+
+.first-family-task { margin-bottom: 20px; overflow-wrap: anywhere; }
+.first-family-task .stack-form { max-width: 28rem; }
+.first-family-task :is(input, select, button) { min-height: 44px; }
+.first-family-task button[type="submit"] { background: #426f5a; border-color: #426f5a; color: white; }
+.first-family-task :is(input, select, button, h2):focus-visible { outline: 3px solid #548774; outline-offset: 3px; }
+.day-welcome-child { display: block; padding: 16px 22px; }
+.day-welcome-child h1 { margin: 0; overflow-wrap: anywhere; }
+.day-welcome-child .day-reward-link { margin-top: 10px; }
